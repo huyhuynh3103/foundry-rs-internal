@@ -3,7 +3,7 @@
 use crate::{
     FoundryBlock, FoundryInspectorExt, FoundryTransaction,
     constants::{
-        CALLER, CHEATCODE_ADDRESS, DEFAULT_CREATE2_DEPLOYER, FDK_CHEATCODE_ADDRESS,
+        CALLER, CHEATCODE_ADDRESS, CHEATCODE_CONTRACTS, DEFAULT_CREATE2_DEPLOYER,
         TEST_CONTRACT_ADDRESS,
     },
     evm::{
@@ -69,8 +69,12 @@ pub type LocalForkId = U256;
 type ForkLookupIndex = usize;
 
 /// All accounts that will have persistent storage across fork swaps.
-const DEFAULT_PERSISTENT_ACCOUNTS: [Address; 4] =
-    [CHEATCODE_ADDRESS, FDK_CHEATCODE_ADDRESS, DEFAULT_CREATE2_DEPLOYER, CALLER];
+fn default_persistent_accounts() -> impl Iterator<Item = Address> {
+    CHEATCODE_CONTRACTS
+        .iter()
+        .map(|contract| contract.address)
+        .chain([DEFAULT_CREATE2_DEPLOYER, CALLER])
+}
 
 /// `bytes32("failed")`, as a storage slot key into [`CHEATCODE_ADDRESS`].
 ///
@@ -518,7 +522,7 @@ impl<FEN: FoundryEvmNetwork> Backend<FEN> {
         trace!(target: "backend", forking_mode=?fork.is_some(), "creating executor backend");
         // Note: this will take of registering the `fork`
         let inner = BackendInner {
-            persistent_accounts: HashSet::from(DEFAULT_PERSISTENT_ACCOUNTS),
+            persistent_accounts: HashSet::from_iter(default_persistent_accounts()),
             ..Default::default()
         };
 
@@ -1994,12 +1998,12 @@ impl<FEN: FoundryEvmNetwork> Default for BackendInner<FEN> {
             spec_id: SpecFor::<FEN>::default(),
             // grant the cheatcode,default test and caller address access to execute cheatcodes
             // itself
-            cheatcode_access_accounts: HashSet::from([
-                CHEATCODE_ADDRESS,
-                FDK_CHEATCODE_ADDRESS,
-                TEST_CONTRACT_ADDRESS,
-                CALLER,
-            ]),
+            cheatcode_access_accounts: HashSet::from_iter(
+                CHEATCODE_CONTRACTS
+                    .iter()
+                    .map(|contract| contract.address)
+                    .chain([TEST_CONTRACT_ADDRESS, CALLER]),
+            ),
         }
     }
 }

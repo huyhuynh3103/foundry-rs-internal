@@ -20,9 +20,8 @@ use foundry_evm_core::{
     EvmEnv, FoundryBlock, FoundryTransaction,
     backend::{Backend, BackendError, BackendResult, CowBackend, DatabaseExt, GLOBAL_FAIL_SLOT},
     constants::{
-        CALLER, CHEATCODE_ADDRESS, CHEATCODE_CONTRACT_HASH, DEFAULT_CREATE2_DEPLOYER,
-        DEFAULT_CREATE2_DEPLOYER_CODE, DEFAULT_CREATE2_DEPLOYER_DEPLOYER, FDK_CHEATCODE_ADDRESS,
-        FDK_CHEATCODE_CONTRACT_HASH,
+        CALLER, CHEATCODE_ADDRESS, CHEATCODE_CONTRACTS, DEFAULT_CREATE2_DEPLOYER,
+        DEFAULT_CREATE2_DEPLOYER_CODE, DEFAULT_CREATE2_DEPLOYER_DEPLOYER,
     },
     decode::{RevertDecoder, SkipReason},
     evm::{
@@ -123,26 +122,21 @@ impl<FEN: FoundryEvmNetwork> Executor<FEN> {
         gas_limit: u64,
         legacy_assertions: bool,
     ) -> Self {
-        // Need to create a non-empty contract on the cheatcodes address so `extcodesize` checks
+        // Need to create a non-empty contract on the cheatcodes addresses so `extcodesize` checks
         // do not fail.
-        backend.insert_account_info(
-            CHEATCODE_ADDRESS,
-            revm::state::AccountInfo {
-                code: Some(Bytecode::new_raw(Bytes::from_static(&[0]))),
-                // Also set the code hash manually so that it's not computed later.
-                // The code hash value does not matter, as long as it's not zero or `KECCAK_EMPTY`.
-                code_hash: CHEATCODE_CONTRACT_HASH,
-                ..Default::default()
-            },
-        );
-        backend.insert_account_info(
-            FDK_CHEATCODE_ADDRESS,
-            revm::state::AccountInfo {
-                code: Some(Bytecode::new_raw(Bytes::from_static(&[0]))),
-                code_hash: FDK_CHEATCODE_CONTRACT_HASH,
-                ..Default::default()
-            },
-        );
+        for contract in CHEATCODE_CONTRACTS {
+            backend.insert_account_info(
+                contract.address,
+                revm::state::AccountInfo {
+                    code: Some(Bytecode::new_raw(Bytes::from_static(&[0]))),
+                    // Also set the code hash manually so that it's not computed later.
+                    // The code hash value does not matter, as long as it's not zero or
+                    // `KECCAK_EMPTY`.
+                    code_hash: contract.code_hash,
+                    ..Default::default()
+                },
+            );
+        }
 
         Self {
             backend: Arc::new(backend),

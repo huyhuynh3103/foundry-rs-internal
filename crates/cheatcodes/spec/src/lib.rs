@@ -74,6 +74,12 @@ impl Default for Cheatcodes<'static> {
 impl Cheatcodes<'static> {
     /// Returns the default cheatcodes.
     pub fn new() -> Self {
+        let mut cheats = Self::vm_only();
+        cheats.cheatcodes.to_mut().extend(Fdk::CHEATCODES.iter().copied().cloned());
+        cheats
+    }
+
+    pub fn vm_only() -> Self {
         Self {
             // unfortunately technology has not yet advanced to the point where we can get all
             // items of a certain type in a module, so we have to hardcode them here
@@ -134,7 +140,7 @@ mod tests {
     }
 
     fn sol_iface() -> String {
-        let mut cheats = Cheatcodes::new();
+        let mut cheats = Cheatcodes::vm_only();
         cheats.errors = Default::default(); // Skip errors to allow <0.8.4.
         let cheats = cheats.to_string().trim().replace('\n', "\n    ");
         format!(

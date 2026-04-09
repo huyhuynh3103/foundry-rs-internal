@@ -28,6 +28,30 @@ pub const FDK_CHEATCODE_ADDRESS: Address = address!("0x6af387a53c5ac828d61d1c3f7
 pub const FDK_CHEATCODE_CONTRACT_HASH: B256 =
     b256!("0x7ffec959f8df692e4557812b15b1768f7670a5aed48ab2a2b686abd3a55694f2");
 
+#[derive(Clone, Copy, Debug)]
+pub struct CheatcodeContract {
+    pub address: Address,
+    pub code_hash: B256,
+    pub label: &'static str,
+}
+
+pub const CHEATCODE_CONTRACTS: &[CheatcodeContract] = &[
+    CheatcodeContract {
+        address: CHEATCODE_ADDRESS,
+        code_hash: CHEATCODE_CONTRACT_HASH,
+        label: "VM",
+    },
+    CheatcodeContract {
+        address: FDK_CHEATCODE_ADDRESS,
+        code_hash: FDK_CHEATCODE_CONTRACT_HASH,
+        label: "FDK",
+    },
+];
+
+pub fn is_cheatcode_address(address: Address) -> bool {
+    CHEATCODE_CONTRACTS.iter().any(|contract| contract.address == address)
+}
+
 /// The Hardhat console address.
 ///
 /// See: <https://github.com/NomicFoundation/hardhat/blob/main/v-next/hardhat/console.sol>

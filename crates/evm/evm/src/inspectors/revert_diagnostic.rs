@@ -1,8 +1,6 @@
 use alloy_primitives::{Address, U256};
 use alloy_sol_types::SolValue;
-use foundry_evm_core::constants::{
-    CHEATCODE_ADDRESS, FDK_CHEATCODE_ADDRESS, HARDHAT_CONSOLE_ADDRESS,
-};
+use foundry_evm_core::constants::{HARDHAT_CONSOLE_ADDRESS, is_cheatcode_address};
 use revm::{
     Inspector,
     bytecode::opcode,
@@ -14,7 +12,9 @@ use revm::{
 };
 use std::fmt;
 
-const IGNORE: [Address; 3] = [HARDHAT_CONSOLE_ADDRESS, CHEATCODE_ADDRESS, FDK_CHEATCODE_ADDRESS];
+fn is_ignored_address(address: Address) -> bool {
+    address == HARDHAT_CONSOLE_ADDRESS || is_cheatcode_address(address)
+}
 
 /// Checks if the call scheme corresponds to any sort of delegate call
 pub fn is_delegatecall(scheme: CallScheme) -> bool {
@@ -145,7 +145,8 @@ impl RevertDiagnostic {
         // EXTCODESIZE (address)
         if let Ok(word) = interp.stack.peek(0) {
             let addr = Address::from_word(word.into());
-            if IGNORE.contains(&addr) || ctx.journal_ref().precompile_addresses().contains(&addr) {
+            if is_ignored_address(addr) || ctx.journal_ref().precompile_addresses().contains(&addr)
+            {
                 return;
             }
 
@@ -175,7 +176,8 @@ impl<CTX: ContextTr> Inspector<CTX> for RevertDiagnostic {
     fn call(&mut self, ctx: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         let target = self.code_target_address(inputs);
 
-        if IGNORE.contains(&target) || ctx.journal_ref().precompile_addresses().contains(&target) {
+        if is_ignored_address(target) || ctx.journal_ref().precompile_addresses().contains(&target)
+        {
             return None;
         }
 

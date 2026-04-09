@@ -36,7 +36,10 @@ use foundry_evm_core::{
     Breakpoints, EvmEnv, FoundryTransaction, InspectorExt,
     abi::Vm::stopExpectSafeMemoryCall,
     backend::{DatabaseError, DatabaseExt, RevertDiagnostic},
-    constants::{CHEATCODE_ADDRESS, FDK_CHEATCODE_ADDRESS, HARDHAT_CONSOLE_ADDRESS, MAGIC_ASSUME},
+    constants::{
+        CHEATCODE_ADDRESS, FDK_CHEATCODE_ADDRESS, HARDHAT_CONSOLE_ADDRESS, MAGIC_ASSUME,
+        is_cheatcode_address,
+    },
     env::FoundryContextExt,
     evm::{
         BlockEnvFor, EthEvmNetwork, FoundryContextFor, FoundryEvmFactory, FoundryEvmNetwork,
@@ -587,6 +590,27 @@ impl Default for Cheatcodes {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+enum CheatcodeNamespace {
+    Vm,
+    Fdk,
+}
+
+impl CheatcodeNamespace {
+    const ALL: [Self; 2] = [Self::Vm, Self::Fdk];
+
+    fn address(self) -> Address {
+        match self {
+            Self::Vm => CHEATCODE_ADDRESS,
+            Self::Fdk => FDK_CHEATCODE_ADDRESS,
+        }
+    }
+
+    fn from_address(address: Address) -> Option<Self> {
+        Self::ALL.iter().copied().find(|namespace| namespace.address() == address)
+    }
+}
+
 impl<FEN: FoundryEvmNetwork> Cheatcodes<FEN> {
     /// Creates a new `Cheatcodes` with the given settings.
     pub fn new(config: Arc<CheatsConfig>) -> Self {
@@ -670,65 +694,62 @@ impl<FEN: FoundryEvmNetwork> Cheatcodes<FEN> {
     }
 
     /// Decodes the input data and applies the cheatcode.
-    fn apply_cheatcode(
+    fn apply_namespace(
         &mut self,
+        namespace: CheatcodeNamespace,
         ecx: &mut FoundryContextFor<'_, FEN>,
         call: &CallInputs,
         executor: &mut dyn CheatcodesExecutor<FEN>,
     ) -> Result {
-        // decode the cheatcode call
-        let decoded = Vm::VmCalls::abi_decode(&call.input.bytes(ecx)).map_err(|e| {
-            if let alloy_sol_types::Error::UnknownSelector { name: _, selector } = e {
-                let msg = format!(
-                    "unknown cheatcode with selector {selector}; \
-                     you may have a mismatch between the `Vm` interface (likely in `forge-std`) \
-                     and the `forge` version"
-                );
-                return alloy_sol_types::Error::Other(std::borrow::Cow::Owned(msg));
+        match namespace {
+            CheatcodeNamespace::Vm => {
+                let decoded = Vm::VmCalls::abi_decode(&call.input.bytes(ecx)).map_err(|e| {
+                    if let alloy_sol_types::Error::UnknownSelector { name: _, selector } = e {
+                        let msg = format!(
+                            "unknown cheatcode with selector {selector}; \
+                             you may have a mismatch between the `Vm` interface (likely in `forge-std`) \
+                             and the `forge` version"
+                        );
+                        return alloy_sol_types::Error::Other(std::borrow::Cow::Owned(msg));
+                    }
+                    e
+                })?;
+
+                let caller = call.caller;
+
+                // ensure the caller is allowed to execute cheatcodes,
+                // but only if the backend is in forking mode
+                ecx.db_mut().ensure_cheatcode_access_forking_mode(&caller)?;
+
+                apply_dispatch(
+                    &decoded,
+                    &mut CheatsCtxt { state: self, ecx, gas_limit: call.gas_limit, caller },
+                    executor,
+                )
             }
-            e
-        })?;
+            CheatcodeNamespace::Fdk => {
+                let decoded = Fdk::FdkCalls::abi_decode(&call.input.bytes(ecx)).map_err(|e| {
+                    if let alloy_sol_types::Error::UnknownSelector { name: _, selector } = e {
+                        let msg = format!(
+                            "unknown FDK cheatcode with selector {selector}; \
+                             you may have a mismatch between the `Fdk` interface (likely in `fdk-std`) \
+                             and the `forge` version"
+                        );
+                        return alloy_sol_types::Error::Other(std::borrow::Cow::Owned(msg));
+                    }
+                    e
+                })?;
 
-        let caller = call.caller;
+                let caller = call.caller;
+                ecx.db_mut().ensure_cheatcode_access_forking_mode(&caller)?;
 
-        // ensure the caller is allowed to execute cheatcodes,
-        // but only if the backend is in forking mode
-        ecx.db_mut().ensure_cheatcode_access_forking_mode(&caller)?;
-
-        apply_dispatch(
-            &decoded,
-            &mut CheatsCtxt { state: self, ecx, gas_limit: call.gas_limit, caller },
-            executor,
-        )
-    }
-
-    /// Decodes the input data and applies the FDK cheatcode.
-    fn apply_fdk_cheatcode(
-        &mut self,
-        ecx: &mut FoundryContextFor<'_, FEN>,
-        call: &CallInputs,
-        executor: &mut dyn CheatcodesExecutor<FEN>,
-    ) -> Result {
-        let decoded = Fdk::FdkCalls::abi_decode(&call.input.bytes(ecx)).map_err(|e| {
-            if let alloy_sol_types::Error::UnknownSelector { name: _, selector } = e {
-                let msg = format!(
-                    "unknown FDK cheatcode with selector {selector}; \
-                     you may have a mismatch between the `Fdk` interface (likely in `fdk-std`) \
-                     and the `forge` version"
-                );
-                return alloy_sol_types::Error::Other(std::borrow::Cow::Owned(msg));
+                apply_fdk_dispatch(
+                    &decoded,
+                    &mut CheatsCtxt { state: self, ecx, gas_limit: call.gas_limit, caller },
+                    executor,
+                )
             }
-            e
-        })?;
-
-        let caller = call.caller;
-        ecx.db_mut().ensure_cheatcode_access_forking_mode(&caller)?;
-
-        apply_fdk_dispatch(
-            &decoded,
-            &mut CheatsCtxt { state: self, ecx, gas_limit: call.gas_limit, caller },
-            executor,
-        )
+        }
     }
 
     /// Grants cheat code access for new contracts if the caller also has
@@ -829,33 +850,8 @@ impl<FEN: FoundryEvmNetwork> Cheatcodes<FEN> {
             trace!(target: "cheatcodes", %sender, nonce=account.info.nonce, prev, "corrected nonce");
         }
 
-        if call.target_address == CHEATCODE_ADDRESS {
-            return match self.apply_cheatcode(ecx, call, executor) {
-                Ok(retdata) => Some(CallOutcome {
-                    result: InterpreterResult {
-                        result: InstructionResult::Return,
-                        output: retdata.into(),
-                        gas,
-                    },
-                    memory_offset: call.return_memory_offset.clone(),
-                    was_precompile_called: true,
-                    precompile_call_logs: vec![],
-                }),
-                Err(err) => Some(CallOutcome {
-                    result: InterpreterResult {
-                        result: InstructionResult::Revert,
-                        output: err.abi_encode().into(),
-                        gas,
-                    },
-                    memory_offset: call.return_memory_offset.clone(),
-                    was_precompile_called: false,
-                    precompile_call_logs: vec![],
-                }),
-            };
-        }
-
-        if call.target_address == FDK_CHEATCODE_ADDRESS {
-            return match self.apply_fdk_cheatcode(ecx, call, executor) {
+        if let Some(namespace) = CheatcodeNamespace::from_address(call.target_address) {
+            return match self.apply_namespace(namespace, ecx, call, executor) {
                 Ok(retdata) => Some(CallOutcome {
                     result: InterpreterResult {
                         result: InstructionResult::Return,
@@ -1362,8 +1358,7 @@ impl<FEN: FoundryEvmNetwork> Inspector<FoundryContextFor<'_, FEN>> for Cheatcode
         call: &CallInputs,
         outcome: &mut CallOutcome,
     ) {
-        let cheatcode_call = call.target_address == CHEATCODE_ADDRESS
-            || call.target_address == FDK_CHEATCODE_ADDRESS
+        let cheatcode_call = is_cheatcode_address(call.target_address)
             || call.target_address == HARDHAT_CONSOLE_ADDRESS;
 
         // Clean up pranks/broadcasts if it's not a cheatcode call end. We shouldn't do

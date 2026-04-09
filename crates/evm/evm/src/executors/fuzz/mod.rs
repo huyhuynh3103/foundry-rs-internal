@@ -10,7 +10,7 @@ use foundry_common::sh_println;
 use foundry_config::FuzzConfig;
 use foundry_evm_core::{
     Breakpoints,
-    constants::{CHEATCODE_ADDRESS, FDK_CHEATCODE_ADDRESS, MAGIC_ASSUME},
+    constants::{MAGIC_ASSUME, is_cheatcode_address},
     decode::{RevertDecoder, SkipReason},
     evm::FoundryEvmNetwork,
 };
@@ -284,11 +284,10 @@ impl<FEN: FoundryEvmNetwork> FuzzedExecutor<FEN> {
         // Consider call success if test should not fail on reverts and reverter is not the
         // cheatcode or test address.
         let success = if !self.config.fail_on_revert
-            && call.reverter.is_some_and(|reverter| {
-                reverter != address
-                    && reverter != CHEATCODE_ADDRESS
-                    && reverter != FDK_CHEATCODE_ADDRESS
-            }) {
+            && call
+                .reverter
+                .is_some_and(|reverter| reverter != address && !is_cheatcode_address(reverter))
+        {
             true
         } else {
             executor.is_raw_call_mut_success(address, &mut call, false)
