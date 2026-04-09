@@ -17,7 +17,7 @@ pub fn derive_cheatcode(input: &DeriveInput) -> Result<TokenStream> {
         Data::Struct(s) if name_s.ends_with("Call") => derive_call(name, s, &input.attrs),
         Data::Struct(_) if name_s.ends_with("Return") => Ok(TokenStream::new()),
         Data::Struct(s) => derive_struct(name, s, &input.attrs),
-        Data::Enum(e) if name_s.ends_with("Calls") => derive_calls_enum(e),
+        Data::Enum(e) if name_s.ends_with("Calls") => derive_calls_enum(name, e),
         Data::Enum(e) if name_s.ends_with("Errors") => derive_errors_events_enum(e, false),
         Data::Enum(e) if name_s.ends_with("Events") => derive_errors_events_enum(e, true),
         Data::Enum(e) => derive_enum(name, e, &input.attrs),
@@ -118,18 +118,23 @@ fn sorted_variant_types(input: &syn::DataEnum) -> Result<Vec<&syn::Type>> {
 }
 
 /// Generates the `CHEATCODES` constant and implements `CheatcodeImpl` dispatch for an enum.
-fn derive_calls_enum(input: &syn::DataEnum) -> Result<TokenStream> {
+fn derive_calls_enum(name: &Ident, input: &syn::DataEnum) -> Result<TokenStream> {
     let variant_tys = sorted_variant_types(input)?;
     let variant_names = input.variants.iter().map(|v| &v.ident);
+    let name_s = name.to_string();
+    let prefix = name_s
+        .strip_suffix("Calls")
+        .ok_or_else(|| Error::new(name.span(), "expected enum name to end with Calls"))?;
+    let macro_ident = Ident::new(&format!("{}_calls", prefix.to_lowercase()), Span::call_site());
 
     Ok(quote! {
         /// All the cheatcodes in [this contract](self).
         pub const CHEATCODES: &'static [&'static Cheatcode<'static>] = &[#(<#variant_tys as CheatcodeDef>::CHEATCODE,)*];
 
-        /// Internal macro to implement the `Cheatcode` trait for the Vm calls enum.
+        /// Internal macro to implement the `Cheatcode` trait for the calls enum.
         #[doc(hidden)]
         #[macro_export]
-        macro_rules! vm_calls {
+        macro_rules! #macro_ident {
             ($mac:ident) => {
                 $mac!(#(#variant_names),*)
             };

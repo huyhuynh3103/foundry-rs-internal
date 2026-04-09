@@ -15,6 +15,19 @@ pub const CHEATCODE_ADDRESS: Address = address!("0x7109709ECfa91a80626fF3989D68f
 pub const CHEATCODE_CONTRACT_HASH: B256 =
     b256!("0xb0450508e5a2349057c3b4c9c84524d62be4bb17e565dbe2df34725a26872291");
 
+/// The FDK cheatcode handler address.
+///
+/// This is calculated as:
+/// `address(bytes20(uint160(uint256(keccak256('fdk cheat code')))))`
+pub const FDK_CHEATCODE_ADDRESS: Address = address!("0x6af387a53c5ac828d61d1c3f78ae8a0880dbabd4");
+
+/// The contract hash at [`FDK_CHEATCODE_ADDRESS`].
+///
+/// This is calculated as:
+/// `keccak256(abi.encodePacked(FDK_CHEATCODE_ADDRESS))`.
+pub const FDK_CHEATCODE_CONTRACT_HASH: B256 =
+    b256!("0x7ffec959f8df692e4557812b15b1768f7670a5aed48ab2a2b686abd3a55694f2");
+
 /// The Hardhat console address.
 ///
 /// See: <https://github.com/NomicFoundation/hardhat/blob/main/v-next/hardhat/console.sol>

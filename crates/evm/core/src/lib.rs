@@ -18,7 +18,7 @@ pub type Breakpoints = HashMap<char, (Address, usize)>;
 extern crate tracing;
 
 pub mod abi {
-    pub use foundry_cheatcodes_spec::Vm;
+    pub use foundry_cheatcodes_spec::{Fdk, Vm};
     pub use foundry_evm_abi::*;
 }
 

@@ -15,6 +15,9 @@ pub use function::{Function, Mutability, Visibility};
 mod items;
 pub use items::{Enum, EnumVariant, Error, Event, Struct, StructField};
 
+mod fdk;
+pub use fdk::Fdk;
+
 mod vm;
 pub use vm::Vm;
 
