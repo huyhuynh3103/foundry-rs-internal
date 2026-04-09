@@ -1,0 +1,8 @@
+commands:
+  build: cargo build -p foundry-cheatcodes
+  build-forge: cargo build -p forge
+  test: cargo test -p foundry-cheatcodes
+  test-forge: cargo test -p forge --test it -- cheats::fdk
+  typecheck: cargo check -p foundry-cheatcodes -p foundry-cheatcodes-spec
+  lint: cargo clippy -p foundry-cheatcodes -p foundry-cheatcodes-spec -- -D warnings
+  fmt: cargo fmt --check
