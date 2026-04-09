@@ -14,8 +14,11 @@ use foundry_common::{
     get_contract_name, selectors::SelectorKind,
 };
 use foundry_evm_core::{
-    abi::{Vm, console},
-    constants::{CALLER, CHEATCODE_ADDRESS, DEFAULT_CREATE2_DEPLOYER, HARDHAT_CONSOLE_ADDRESS},
+    abi::{Fdk, Vm, console},
+    constants::{
+        CALLER, CHEATCODE_ADDRESS, DEFAULT_CREATE2_DEPLOYER, FDK_CHEATCODE_ADDRESS,
+        HARDHAT_CONSOLE_ADDRESS,
+    },
     decode::RevertDecoder,
     precompiles::{
         BLAKE_2F, BLS12_G1ADD, BLS12_G1MSM, BLS12_G2ADD, BLS12_G2MSM, BLS12_MAP_FP_TO_G1,
@@ -171,6 +174,7 @@ impl CallTraceDecoder {
             contracts: Default::default(),
             labels: HashMap::from_iter([
                 (CHEATCODE_ADDRESS, "VM".to_string()),
+                (FDK_CHEATCODE_ADDRESS, "FDK".to_string()),
                 (HARDHAT_CONSOLE_ADDRESS, "console".to_string()),
                 (DEFAULT_CREATE2_DEPLOYER, "Create2Deployer".to_string()),
                 (CALLER, "DefaultSender".to_string()),
@@ -200,6 +204,7 @@ impl CallTraceDecoder {
             functions: console::hh::abi::functions()
                 .into_values()
                 .chain(Vm::abi::functions().into_values())
+                .chain(Fdk::abi::functions().into_values())
                 .flatten()
                 .map(|func| (func.selector(), vec![func]))
                 .collect(),
@@ -492,7 +497,7 @@ impl CallTraceDecoder {
     fn decode_function_input(&self, trace: &CallTrace, func: &Function) -> DecodedCallData {
         let mut args = None;
         if trace.data.len() >= SELECTOR_LEN {
-            if trace.address == CHEATCODE_ADDRESS {
+            if trace.address == CHEATCODE_ADDRESS || trace.address == FDK_CHEATCODE_ADDRESS {
                 // Try to decode cheatcode inputs in a more custom way
                 if let Some(v) = self.decode_cheatcode_inputs(func, &trace.data) {
                     args = Some(v);
@@ -665,7 +670,7 @@ impl CallTraceDecoder {
             return self.default_return_data(trace);
         }
 
-        if trace.address == CHEATCODE_ADDRESS
+        if (trace.address == CHEATCODE_ADDRESS || trace.address == FDK_CHEATCODE_ADDRESS)
             && let Some(decoded) = funcs.iter().find_map(|func| self.decode_cheatcode_outputs(func))
         {
             return Some(decoded);

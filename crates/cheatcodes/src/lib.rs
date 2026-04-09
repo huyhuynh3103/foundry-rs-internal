@@ -29,7 +29,7 @@ pub use foundry_evm_core::evm::NestedEvmClosure;
 pub use inspector::{
     BroadcastableTransaction, BroadcastableTransactions, Cheatcodes, CheatcodesExecutor,
 };
-pub use spec::{CheatcodeDef, Vm};
+pub use spec::{CheatcodeDef, Fdk, Vm};
 
 #[macro_use]
 mod error;
@@ -46,6 +46,8 @@ mod env;
 pub use env::set_execution_context;
 
 mod evm;
+
+mod fdk;
 
 mod fs;
 

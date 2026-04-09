@@ -1,6 +1,8 @@
 use alloy_primitives::{Address, U256};
 use alloy_sol_types::SolValue;
-use foundry_evm_core::constants::{CHEATCODE_ADDRESS, HARDHAT_CONSOLE_ADDRESS};
+use foundry_evm_core::constants::{
+    CHEATCODE_ADDRESS, FDK_CHEATCODE_ADDRESS, HARDHAT_CONSOLE_ADDRESS,
+};
 use revm::{
     Inspector,
     bytecode::opcode,
@@ -12,7 +14,7 @@ use revm::{
 };
 use std::fmt;
 
-const IGNORE: [Address; 2] = [HARDHAT_CONSOLE_ADDRESS, CHEATCODE_ADDRESS];
+const IGNORE: [Address; 3] = [HARDHAT_CONSOLE_ADDRESS, CHEATCODE_ADDRESS, FDK_CHEATCODE_ADDRESS];
 
 /// Checks if the call scheme corresponds to any sort of delegate call
 pub fn is_delegatecall(scheme: CallScheme) -> bool {

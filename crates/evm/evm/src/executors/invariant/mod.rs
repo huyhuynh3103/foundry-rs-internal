@@ -17,7 +17,8 @@ use foundry_config::InvariantConfig;
 use foundry_evm_core::{
     FoundryBlock,
     constants::{
-        CALLER, CHEATCODE_ADDRESS, DEFAULT_CREATE2_DEPLOYER, HARDHAT_CONSOLE_ADDRESS, MAGIC_ASSUME,
+        CALLER, CHEATCODE_ADDRESS, DEFAULT_CREATE2_DEPLOYER, FDK_CHEATCODE_ADDRESS,
+        HARDHAT_CONSOLE_ADDRESS, MAGIC_ASSUME,
     },
     evm::FoundryEvmNetwork,
     precompiles::PRECOMPILES,
@@ -856,6 +857,7 @@ impl<'a, FEN: FoundryEvmNetwork> InvariantExecutor<'a, FEN> {
         // Extend with default excluded addresses - https://github.com/foundry-rs/foundry/issues/4163
         excluded_senders.extend([
             CHEATCODE_ADDRESS,
+            FDK_CHEATCODE_ADDRESS,
             HARDHAT_CONSOLE_ADDRESS,
             DEFAULT_CREATE2_DEPLOYER,
         ]);
@@ -877,6 +879,7 @@ impl<'a, FEN: FoundryEvmNetwork> InvariantExecutor<'a, FEN> {
 
                 *addr != to
                     && *addr != CHEATCODE_ADDRESS
+                    && *addr != FDK_CHEATCODE_ADDRESS
                     && *addr != HARDHAT_CONSOLE_ADDRESS
                     && (selected.is_empty() || selected.contains(addr))
                     && (excluded.is_empty() || !excluded.contains(addr))
