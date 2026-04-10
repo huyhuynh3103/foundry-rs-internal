@@ -128,6 +128,12 @@ pub enum Group {
     ///
     /// Safety: safe.
     Utilities,
+    /// Foundry Deployment Kit cheatcodes.
+    ///
+    /// Examples: `loadContract`, `deployImmutable`, `deployLogic`, `deployProxy`, `upgradeProxy`.
+    ///
+    /// Safety: ambiguous, depends on whether the cheatcode is read-only or not.
+    Custom,
 }
 
 impl Group {
@@ -137,7 +143,7 @@ impl Group {
     /// `None`.
     pub const fn safety(self) -> Option<Safety> {
         match self {
-            Self::Evm | Self::Testing => None,
+            Self::Evm | Self::Testing | Self::Custom => None,
             Self::Scripting
             | Self::Filesystem
             | Self::Environment
@@ -162,6 +168,7 @@ impl Group {
             Self::Toml => "toml",
             Self::Crypto => "crypto",
             Self::Utilities => "utilities",
+            Self::Custom => "custom",
         }
     }
 }

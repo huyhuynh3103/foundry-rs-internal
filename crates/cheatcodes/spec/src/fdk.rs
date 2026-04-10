@@ -14,5 +14,22 @@ interface Fdk {
     /// Returns the FDK version string.
     #[cheatcode(group = Utilities, safety = Safe)]
     function fdkVersion() external pure returns (string memory);
+    
+    /// Loads a contract from the FDK registry.
+    #[cheatcode(group = Custom, safety = Unsafe)]
+    function loadContract(string calldata contractName) external pure returns (address);
+
+    // function deployImmutable(string calldata contractName, bytes calldata constructorArgs) external pure returns (address);
+
+    // function deployLogic(string calldata contractName, bytes calldata constructorArgs) external pure returns (address);
+
+    // function deployProxy(string calldata contractName, bytes calldata constructorArgs, bytes calldata initializationData, address proxyAdmin) external pure returns (address);
+    // function deployProxy(string calldata contractName, bytes calldata initializationData, address proxyAdmin) external pure returns (address);
+    // function deployProxy(string calldata contractName, bytes calldata initializationData) external pure returns (address);
+    // function deployProxy(string calldata contractName) external pure returns (address);
+
+    // function upgradeProxy(string calldata contractName, bytes calldata constructorArgs, bytes calldata initializationData) external pure returns (address);
+    // function upgradeProxy(string calldata contractName, bytes calldata initializationData) external pure returns (address);
+    // function upgradeProxy(string calldata contractName) external pure returns (address);
 }
 }
