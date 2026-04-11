@@ -573,6 +573,8 @@ pub struct Cheatcodes<FEN: FoundryEvmNetwork = EthEvmNetwork> {
     pub deprecated: HashMap<&'static str, Option<&'static str>>,
     /// FDK address book cache, keyed by chain id then contract name.
     pub fdk_address_book: HashMap<u64, HashMap<String, Address>>,
+    /// FDK chain id to network alias cache.
+    pub fdk_network_aliases: HashMap<u64, String>,
     /// Unlocked wallets used in scripts and testing of scripts.
     pub wallets: Option<Wallets>,
     /// Signatures identifier for decoding events and functions
@@ -657,6 +659,7 @@ impl<FEN: FoundryEvmNetwork> Cheatcodes<FEN> {
             arbitrary_storage: Default::default(),
             deprecated: Default::default(),
             fdk_address_book: Default::default(),
+            fdk_network_aliases: Default::default(),
             wallets: Default::default(),
             signatures_identifier: Default::default(),
             dynamic_gas_limit: Default::default(),
