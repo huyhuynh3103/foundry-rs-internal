@@ -3,8 +3,9 @@
 use crate::{Cheatcode, Cheatcodes, CheatsCtxt, Fdk::*, Result, Vm::*};
 use alloy_chains::Chain as AlloyChain;
 use alloy_primitives::{Address, U256};
+use alloy_provider::Provider;
 use alloy_sol_types::SolValue;
-use foundry_common::fs;
+use foundry_common::{block_on, fs, provider::get_http_provider};
 use foundry_config::fs_permissions::FsAccessKind;
 use foundry_evm_core::evm::FoundryEvmNetwork;
 use revm::context::ContextTr;
@@ -79,11 +80,11 @@ fn load_contract<FEN: FoundryEvmNetwork>(
 
 fn get_chain<FEN: FoundryEvmNetwork>(
     state: &mut Cheatcodes<FEN>,
-    chain_alias: &str,
+    alias_or_id: &str,
 ) -> Result<Chain> {
     // Parse the chain alias - works for both chain names and IDs
-    let alloy_chain = AlloyChain::from_str(chain_alias)
-        .map_err(|_| fmt_err!("invalid chain alias: {chain_alias}"))?;
+    let alloy_chain = AlloyChain::from_str(alias_or_id)
+        .map_err(|_| fmt_err!("invalid chain alias or ID: {alias_or_id}"))?;
     let chain_name = alloy_chain.to_string();
     let chain_id = alloy_chain.id();
 
@@ -91,24 +92,40 @@ fn get_chain<FEN: FoundryEvmNetwork>(
     // When a numeric ID is passed for an unknown chain, alloy_chain.to_string() will return the ID
     // So if they match, it's likely an unknown chain ID
     if chain_name == chain_id.to_string() {
-        return Err(fmt_err!("invalid chain alias: {chain_alias}"));
+        return Err(fmt_err!("invalid chain alias: {alias_or_id}"));
     }
 
     // Try to retrieve RPC URL and chain alias from user's config in foundry.toml.
-    let (rpc_url, chain_alias) = if let Some(rpc_url) =
-        state.config.rpc_endpoint(&chain_name).ok().and_then(|e| e.url().ok())
-    {
-        (rpc_url, chain_name.clone())
-    } else {
-        (String::new(), chain_alias.to_string())
-    };
+    let chain_alias =
+        if alias_or_id != chain_id.to_string() { alias_or_id.to_string() } else { String::new() };
 
+    // let rpc_url = state
+    //     .config
+    //     .rpc_endpoint(&chain_name)
+    //     .ok()
+    //     .and_then(|e| e.url().ok())
+    //     .unwrap_or(String::new());
+    let rpc_urls = state.config.rpc_urls()?;
+    let (rpc_url, chain_alias) = rpc_urls
+        .iter()
+        .find_map(|rpc| {
+            let provider = get_http_provider(&rpc.url);
+            let fetched_chain_id = block_on(provider.get_chain_id()).ok()?;
+            if fetched_chain_id == chain_id {
+                Some((rpc.url.clone(), rpc.key.clone()))
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| (String::new(), chain_alias.clone()));
     let chain_struct = Chain {
         name: chain_name,
         chainId: U256::from(chain_id),
         chainAlias: chain_alias,
         rpcUrl: rpc_url,
     };
+
+    println!("chain_struct: {chain_struct:?}");
 
     Ok(chain_struct)
 }
@@ -140,7 +157,6 @@ fn resolve_deployment_address<FEN: FoundryEvmNetwork>(
         serde_json::from_str(&contents).map_err(|e| fmt_err!("failed parsing deployment: {e}"))?;
     Ok(Some(artifact.address))
 }
-
 
 fn deployments_root() -> PathBuf {
     PathBuf::from("deployments")
