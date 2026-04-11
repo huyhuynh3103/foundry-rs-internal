@@ -8,6 +8,7 @@ use crate::{
         mock::{MockCallDataContext, MockCallReturnData},
         prank::Prank,
     },
+    fdk::FdkState,
     inspector::utils::CommonCreateInput,
     script::{Broadcast, Wallets},
     test::{
@@ -571,10 +572,6 @@ pub struct Cheatcodes<FEN: FoundryEvmNetwork = EthEvmNetwork> {
 
     /// Deprecated cheatcodes mapped to the reason. Used to report warnings on test results.
     pub deprecated: HashMap<&'static str, Option<&'static str>>,
-    /// FDK address book cache, keyed by chain id then contract name.
-    pub fdk_address_book: HashMap<u64, HashMap<String, Address>>,
-    /// FDK chain id to network alias cache.
-    pub fdk_network_aliases: HashMap<u64, String>,
     /// Unlocked wallets used in scripts and testing of scripts.
     pub wallets: Option<Wallets>,
     /// Signatures identifier for decoding events and functions
@@ -583,6 +580,8 @@ pub struct Cheatcodes<FEN: FoundryEvmNetwork = EthEvmNetwork> {
     pub dynamic_gas_limit: bool,
     // Custom execution evm version.
     pub execution_evm_version: Option<SpecFor<FEN>>,
+    /// FDK state
+    pub fdk: FdkState,
 }
 
 // This is not derived because calling this in `fn new` with `..Default::default()` creates a second
@@ -658,8 +657,7 @@ impl<FEN: FoundryEvmNetwork> Cheatcodes<FEN> {
             ignored_traces: Default::default(),
             arbitrary_storage: Default::default(),
             deprecated: Default::default(),
-            fdk_address_book: Default::default(),
-            fdk_network_aliases: Default::default(),
+            fdk: Default::default(),
             wallets: Default::default(),
             signatures_identifier: Default::default(),
             dynamic_gas_limit: Default::default(),

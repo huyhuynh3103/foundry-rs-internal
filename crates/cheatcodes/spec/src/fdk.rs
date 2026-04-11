@@ -14,14 +14,14 @@ interface Fdk {
     /// Returns the FDK version string.
     #[cheatcode(group = Utilities, safety = Safe)]
     function fdkVersion() external pure returns (string memory);
-    
+
     /// Loads a contract from the FDK registry.
     #[cheatcode(group = Scripting, safety = Safe)]
     function loadContract(string calldata contractName) external pure returns (address);
 
-    /// Loads a contract from the FDK registry by network name.
+    /// Loads a contract from the FDK registry by chain alias.
     #[cheatcode(group = Scripting, safety = Safe)]
-    function loadContract(string calldata contractName, string calldata networkName) external pure returns (address);
+    function loadContract(string calldata contractName, string calldata chainAlias) external pure returns (address);
 
     /// Loads a contract from the FDK registry by chain ID.
     #[cheatcode(group = Scripting, safety = Safe)]
