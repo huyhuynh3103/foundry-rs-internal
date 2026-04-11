@@ -9,7 +9,7 @@ use foundry_common::{block_on, fs, provider::get_http_provider};
 use foundry_config::fs_permissions::FsAccessKind;
 use foundry_evm_core::evm::FoundryEvmNetwork;
 use revm::context::ContextTr;
-use std::{path::PathBuf, str::FromStr};
+use std::path::PathBuf;
 
 impl Cheatcode for fdkVersionCall {
     fn apply<FEN: FoundryEvmNetwork>(&self, _state: &mut Cheatcodes<FEN>) -> Result {
@@ -29,7 +29,8 @@ impl Cheatcode for loadContract_0Call {
 impl Cheatcode for loadContract_1Call {
     fn apply_stateful<FEN: FoundryEvmNetwork>(&self, ccx: &mut CheatsCtxt<'_, '_, FEN>) -> Result {
         let Self { contractName, chainAlias } = self;
-        let chain = get_chain(ccx.state, chainAlias)?;
+        let chain_id = chain_alias_to_id(ccx.state, chainAlias)?;
+        let chain = get_chain(ccx.state, &chain_id.to_string())?;
         load_contract(ccx.state, chain, contractName).map(|address| address.abi_encode())
     }
 }
@@ -76,55 +77,87 @@ fn load_contract<FEN: FoundryEvmNetwork>(
     Ok(address)
 }
 
+fn chain_alias_to_id<FEN: FoundryEvmNetwork>(
+    state: &mut Cheatcodes<FEN>,
+    chain_alias: &str,
+) -> Result<u64> {
+    let chain_id = state.fdk.alias_to_chain_id.get(chain_alias).copied();
+    match chain_id {
+        Some(chain_id) => Ok(chain_id),
+        None => {
+            match state
+                .config
+                .rpc_endpoint(&chain_alias)
+                .ok()
+                .and_then(|e| e.url().ok())
+                .and_then(|rpc_url| block_on(get_http_provider(&rpc_url).get_chain_id()).ok())
+            {
+                Some(chain_id) => {
+                    state.fdk.alias_to_chain_id.insert(chain_alias.to_string(), chain_id);
+                    state.fdk.chain_id_to_alias.insert(chain_id, chain_alias.to_string());
+                    Ok(chain_id)
+                }
+                None => Err(fmt_err!("chain alias not found: {chain_alias}")),
+            }
+        }
+    }
+}
+
+fn chain_id_to_alias<FEN: FoundryEvmNetwork>(
+    state: &mut Cheatcodes<FEN>,
+    chain_id: u64,
+) -> Result<String> {
+    let chain_alias =
+        state.fdk.chain_id_to_alias.get(&chain_id).and_then(|alias| Some(alias.clone()));
+
+    match chain_alias {
+        Some(chain_alias) => Ok(chain_alias),
+        None => {
+            // find chain alias from rpc urls configured in foundry.toml
+            let rpc_urls = state.config.rpc_urls()?;
+            let chain_alias = rpc_urls.iter().find_map(|rpc| {
+                let provider = get_http_provider(&rpc.url);
+                let fetched_chain_id = block_on(provider.get_chain_id()).ok()?;
+                if fetched_chain_id == chain_id { Some(rpc.key.clone()) } else { None }
+            });
+            match chain_alias {
+                Some(chain_alias) => {
+                    state.fdk.chain_id_to_alias.insert(chain_id, chain_alias.clone());
+                    state.fdk.alias_to_chain_id.insert(chain_alias.clone(), chain_id);
+                    Ok(chain_alias)
+                }
+                None => {
+                    // fallback to name defined in alloy_chains
+                    let chain = AlloyChain::from_id(chain_id);
+                    let chain_alias = chain.to_string();
+
+                    state.fdk.chain_id_to_alias.insert(chain_id, chain_alias.to_string());
+                    state.fdk.alias_to_chain_id.insert(chain_alias.to_string(), chain_id);
+
+                    Ok(chain_alias)
+                }
+            }
+        }
+    }
+}
+
 fn get_chain<FEN: FoundryEvmNetwork>(
     state: &mut Cheatcodes<FEN>,
-    alias_or_id: &str,
+    chain_alias: &str,
 ) -> Result<Chain> {
-    // Parse the chain alias - works for both chain names and IDs
-    let alloy_chain = AlloyChain::from_str(alias_or_id).map_err(|e| fmt_err!("{e}"))?;
-    let chain_name = alloy_chain.to_string();
-    let chain_id = alloy_chain.id();
+    let chain_id = chain_alias_to_id(state, chain_alias)?;
+    let chain_alias = chain_id_to_alias(state, chain_id)?;
 
-    // Check if this is an unknown chain ID by comparing the name to the chain ID
-    // When a numeric ID is passed for an unknown chain, alloy_chain.to_string() will return the ID
-    // So if they match, it's likely an unknown chain ID
-    if chain_name == chain_id.to_string() {
-        return Err(fmt_err!("invalid chain alias or ID: {alias_or_id}"));
-    }
-
-    // Try to retrieve RPC URL and chain alias from user's config in foundry.toml.
-    let chain_alias =
-        if alias_or_id != chain_id.to_string() { alias_or_id.to_string() } else { String::new() };
-
-    // let rpc_url = state
-    //     .config
-    //     .rpc_endpoint(&chain_name)
-    //     .ok()
-    //     .and_then(|e| e.url().ok())
-    //     .unwrap_or(String::new());
-    let rpc_urls = state.config.rpc_urls()?;
-    let (rpc_url, chain_alias) = rpc_urls
-        .iter()
-        .find_map(|rpc| {
-            let provider = get_http_provider(&rpc.url);
-            let fetched_chain_id = block_on(provider.get_chain_id()).ok()?;
-            if fetched_chain_id == chain_id {
-                Some((rpc.url.clone(), rpc.key.clone()))
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| (String::new(), chain_alias.clone()));
-    let chain_struct = Chain {
+    let chain = AlloyChain::from_id(chain_id);
+    let chain_name = chain.to_string();
+    let rpc_url =
+        state.config.rpc_endpoint(&chain_name).ok().and_then(|e| e.url().ok()).unwrap_or_default();
+    Ok(Chain {
         name: chain_name,
         chainId: U256::from(chain_id),
         chainAlias: chain_alias,
         rpcUrl: rpc_url,
-    };
-
-    println!("chain_struct: {chain_struct:?}");
-
-    Ok(chain_struct)
+    })
 }
 
 fn resolve_deployment_address<FEN: FoundryEvmNetwork>(
