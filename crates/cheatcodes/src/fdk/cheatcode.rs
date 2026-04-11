@@ -44,11 +44,6 @@ impl Cheatcode for loadContract_2Call {
         load_contract(state, chain, contractName).map(|address| address.abi_encode())
     }
 }
-
-fn deployments_root() -> PathBuf {
-    "deployments".into()
-}
-
 #[derive(serde::Deserialize)]
 struct DeploymentArtifact {
     address: Address,
@@ -144,4 +139,9 @@ fn resolve_deployment_address<FEN: FoundryEvmNetwork>(
     let artifact: DeploymentArtifact =
         serde_json::from_str(&contents).map_err(|e| fmt_err!("failed parsing deployment: {e}"))?;
     Ok(Some(artifact.address))
+}
+
+
+fn deployments_root() -> PathBuf {
+    PathBuf::from("deployments")
 }
