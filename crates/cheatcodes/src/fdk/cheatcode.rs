@@ -21,8 +21,7 @@ impl Cheatcode for loadContract_0Call {
     fn apply_stateful<FEN: FoundryEvmNetwork>(&self, ccx: &mut CheatsCtxt<'_, '_, FEN>) -> Result {
         let Self { contractName } = self;
         let chain_id = ccx.ecx.cfg().chain_id;
-        let chain = get_chain(ccx.state, &chain_id.to_string())
-            .map_err(|_| fmt_err!("invalid chain ID: {chain_id}"))?;
+        let chain = get_chain(ccx.state, &chain_id.to_string())?;
         load_contract(ccx.state, chain, contractName).map(|address| address.abi_encode())
     }
 }
@@ -40,8 +39,7 @@ impl Cheatcode for loadContract_2Call {
         let Self { contractName, chainId } = self;
         ensure!(*chainId <= U256::from(u64::MAX), "chain ID must be less than 2^64");
         let chain_id = chainId.to::<u64>();
-        let chain = get_chain(state, &chain_id.to_string())
-            .map_err(|_| fmt_err!("invalid chain ID: {chain_id}"))?;
+        let chain = get_chain(state, &chain_id.to_string())?;
         load_contract(state, chain, contractName).map(|address| address.abi_encode())
     }
 }
