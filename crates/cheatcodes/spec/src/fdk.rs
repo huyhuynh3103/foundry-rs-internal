@@ -19,6 +19,14 @@ interface Fdk {
     #[cheatcode(group = Custom, safety = Unsafe)]
     function loadContract(string calldata contractName) external pure returns (address);
 
+    /// Loads a contract from the FDK registry by network name.
+    #[cheatcode(group = Custom, safety = Unsafe)]
+    function loadContract(string calldata contractName, string calldata networkName) external pure returns (address);
+
+    /// Loads a contract from the FDK registry by chain ID.
+    #[cheatcode(group = Custom, safety = Unsafe)]
+    function loadContract(string calldata contractName, uint256 chainId) external pure returns (address);
+
     // function deployImmutable(string calldata contractName, bytes calldata constructorArgs) external pure returns (address);
 
     // function deployLogic(string calldata contractName, bytes calldata constructorArgs) external pure returns (address);

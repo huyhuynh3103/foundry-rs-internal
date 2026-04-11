@@ -1,14 +1,14 @@
 //! Implementations of FDK cheatcodes.
 
 use crate::{Cheatcode, Cheatcodes, CheatsCtxt, Fdk::*, Result};
-use alloy_primitives::Address;
+use alloy_chains::Chain as AlloyChain;
+use alloy_primitives::{Address, U256};
 use alloy_sol_types::SolValue;
 use foundry_common::fs;
-use foundry_config::{fs_permissions::FsAccessKind, resolve::interpolate};
+use foundry_config::fs_permissions::FsAccessKind;
 use foundry_evm_core::evm::FoundryEvmNetwork;
 use revm::context::ContextTr;
-use std::{env, path::PathBuf, str::FromStr};
-use toml::Value as TomlValue;
+use std::{path::PathBuf, str::FromStr};
 
 impl Cheatcode for fdkVersionCall {
     fn apply<FEN: FoundryEvmNetwork>(&self, _state: &mut Cheatcodes<FEN>) -> Result {
@@ -16,94 +16,44 @@ impl Cheatcode for fdkVersionCall {
     }
 }
 
-impl Cheatcode for loadContractCall {
+impl Cheatcode for loadContract_0Call {
     fn apply_stateful<FEN: FoundryEvmNetwork>(&self, ccx: &mut CheatsCtxt<'_, '_, FEN>) -> Result {
         let Self { contractName } = self;
         let chain_id = ccx.ecx.cfg().chain_id;
-        if let Some(address) = ccx
-            .state
-            .fdk_address_book
-            .get(&chain_id)
-            .and_then(|entries| entries.get(contractName))
-            .copied()
-        {
-            return Ok(address.abi_encode());
-        }
-
-        let toml = load_fdk_toml(ccx.state)?;
-        let chain_id_i64 = chain_id as i64;
-        let network_name = resolve_network_name(&toml, chain_id_i64)?;
-        let contract_address = if let Some(address) =
-            resolve_deployment_address(ccx.state, &toml, &network_name, contractName)?
-        {
-            address
-        } else {
-            resolve_contract_address(&toml, &network_name, contractName)?
-        };
-        ccx.state
-            .fdk_address_book
-            .entry(chain_id)
-            .or_default()
-            .insert(contractName.clone(), contract_address);
-        Ok(contract_address.abi_encode())
+        load_contract_by_chain_id(ccx.state, chain_id, contractName).map(|address| {
+            address.abi_encode()
+        })
     }
 }
 
-fn load_fdk_toml<FEN: FoundryEvmNetwork>(state: &Cheatcodes<FEN>) -> Result<TomlValue> {
-    let path = state.config.ensure_path_allowed(fdk_toml_path(), FsAccessKind::Read)?;
-    let contents = fs::locked_read_to_string(&path)?;
-    let resolved =
-        interpolate(&contents).map_err(|e| fmt_err!("failed to resolve env var: {e}"))?;
-    toml::from_str(&resolved).map_err(|e| fmt_err!("failed parsing TOML: {e}"))
-}
-
-fn fdk_toml_path() -> PathBuf {
-    env::var("FDK_TOML_PATH").map(PathBuf::from).unwrap_or_else(|_| "fdk.toml".into())
-}
-
-fn resolve_network_name(toml: &TomlValue, chain_id: i64) -> Result<String> {
-    let networks = toml
-        .get("networks")
-        .and_then(|value| value.as_table())
-        .ok_or_else(|| fmt_err!("missing [networks] section in fdk.toml"))?;
-    for (name, value) in networks {
-        let Some(id) = value.get("chain_id").and_then(|v| v.as_integer()) else { continue };
-        if id == chain_id {
-            return Ok(name.clone());
+impl Cheatcode for loadContract_1Call {
+    fn apply_stateful<FEN: FoundryEvmNetwork>(&self, ccx: &mut CheatsCtxt<'_, '_, FEN>) -> Result {
+        let Self { contractName, networkName } = self;
+        let alloy_chain = AlloyChain::from_str(networkName)
+            .map_err(|_| fmt_err!("invalid chain alias: {networkName}"))?;
+        let chain_name = alloy_chain.to_string();
+        let chain_id = alloy_chain.id();
+        if chain_name == chain_id.to_string() {
+            return Err(fmt_err!("invalid chain alias: {networkName}"));
         }
+        load_contract_by_chain_id(ccx.state, chain_id, contractName).map(|address| {
+            address.abi_encode()
+        })
     }
-    Err(fmt_err!("no network found for chain_id {chain_id} in fdk.toml"))
 }
 
-fn resolve_contract_address(
-    toml: &TomlValue,
-    network_name: &str,
-    contract_name: &str,
-) -> Result<Address> {
-    let contracts = toml
-        .get("contracts")
-        .and_then(|value| value.as_table())
-        .ok_or_else(|| fmt_err!("missing [contracts] section in fdk.toml"))?;
-    let network_contracts = contracts
-        .get(network_name)
-        .and_then(|value| value.as_table())
-        .ok_or_else(|| fmt_err!("missing [contracts.{network_name}] section in fdk.toml"))?;
-    let address_str = network_contracts
-        .get(contract_name)
-        .and_then(|value| value.as_str())
-        .ok_or_else(|| fmt_err!("missing contracts.{network_name}.{contract_name} in fdk.toml"))?;
-    Address::from_str(address_str)
-        .map_err(|e| fmt_err!("invalid address for {contract_name} in {network_name}: {e}"))
+impl Cheatcode for loadContract_2Call {
+    fn apply<FEN: FoundryEvmNetwork>(&self, state: &mut Cheatcodes<FEN>) -> Result {
+        let Self { contractName, chainId } = self;
+        ensure!(*chainId <= U256::from(u64::MAX), "chain ID must be less than 2^64");
+        let chain_id = chainId.to::<u64>();
+        load_contract_by_chain_id(state, chain_id, contractName).map(|address| {
+            address.abi_encode()
+        })
+    }
 }
-
-fn resolve_deployments_path(toml: &TomlValue) -> Result<PathBuf> {
-    let project = toml
-        .get("project")
-        .and_then(|value| value.as_table())
-        .ok_or_else(|| fmt_err!("missing [project] section in fdk.toml"))?;
-    let path =
-        project.get("deployments_path").and_then(|value| value.as_str()).unwrap_or("deployments");
-    Ok(PathBuf::from(path))
+fn deployments_root() -> PathBuf {
+    "deployments".into()
 }
 
 #[derive(serde::Deserialize)]
@@ -113,11 +63,10 @@ struct DeploymentArtifact {
 
 fn resolve_deployment_address<FEN: FoundryEvmNetwork>(
     state: &Cheatcodes<FEN>,
-    toml: &TomlValue,
     network_name: &str,
     contract_name: &str,
 ) -> Result<Option<Address>> {
-    let deployments_path = resolve_deployments_path(toml)?;
+    let deployments_path = deployments_root();
     let deployment_file = deployments_path.join(network_name).join(format!("{contract_name}.json"));
     let deployment_file = state.config.ensure_path_allowed(deployment_file, FsAccessKind::Read)?;
     if !deployment_file.exists() {
@@ -138,4 +87,38 @@ fn resolve_deployment_address<FEN: FoundryEvmNetwork>(
     let artifact: DeploymentArtifact =
         serde_json::from_str(&contents).map_err(|e| fmt_err!("failed parsing deployment: {e}"))?;
     Ok(Some(artifact.address))
+}
+
+fn load_contract_by_chain_id<FEN: FoundryEvmNetwork>(
+    state: &mut Cheatcodes<FEN>,
+    chain_id: u64,
+    contract_name: &str,
+) -> Result<Address> {
+    if let Some(address) = state
+        .fdk_address_book
+        .get(&chain_id)
+        .and_then(|entries| entries.get(contract_name))
+        .copied()
+    {
+        return Ok(address);
+    }
+
+    let network_name = AlloyChain::from_id(chain_id).to_string();
+    let mut address: Option<Address> = resolve_deployment_address(state, &network_name, contract_name)?;
+    if address.is_none() {
+        let chain_folder = network_name.to_string();
+        if chain_folder != network_name {
+            address = resolve_deployment_address(state, &chain_folder, contract_name)?;
+        }
+    }
+    let address = address.ok_or_else(|| {
+        fmt_err!("no deployment found for {contract_name} on chain {network_name}")
+    })?;
+
+    state
+        .fdk_address_book
+        .entry(chain_id)
+        .or_default()
+        .insert(contract_name.to_string(), address);
+    Ok(address)
 }
