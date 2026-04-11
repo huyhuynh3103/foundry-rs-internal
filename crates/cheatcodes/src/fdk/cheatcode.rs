@@ -81,7 +81,7 @@ fn get_chain<FEN: FoundryEvmNetwork>(
     alias_or_id: &str,
 ) -> Result<Chain> {
     // Parse the chain alias - works for both chain names and IDs
-    let alloy_chain = AlloyChain::from_str(alias_or_id)?;
+    let alloy_chain = AlloyChain::from_str(alias_or_id).map_err(|e| fmt_err!("{e}"))?;
     let chain_name = alloy_chain.to_string();
     let chain_id = alloy_chain.id();
 
