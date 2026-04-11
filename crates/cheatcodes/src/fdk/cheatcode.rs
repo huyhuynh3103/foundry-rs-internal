@@ -81,8 +81,7 @@ fn get_chain<FEN: FoundryEvmNetwork>(
     alias_or_id: &str,
 ) -> Result<Chain> {
     // Parse the chain alias - works for both chain names and IDs
-    let alloy_chain = AlloyChain::from_str(alias_or_id)
-        .map_err(|_| fmt_err!("invalid chain alias or ID: {alias_or_id}"))?;
+    let alloy_chain = AlloyChain::from_str(alias_or_id)?;
     let chain_name = alloy_chain.to_string();
     let chain_id = alloy_chain.id();
 
@@ -90,7 +89,7 @@ fn get_chain<FEN: FoundryEvmNetwork>(
     // When a numeric ID is passed for an unknown chain, alloy_chain.to_string() will return the ID
     // So if they match, it's likely an unknown chain ID
     if chain_name == chain_id.to_string() {
-        return Err(fmt_err!("invalid chain alias: {alias_or_id}"));
+        return Err(fmt_err!("invalid chain alias or ID: {alias_or_id}"));
     }
 
     // Try to retrieve RPC URL and chain alias from user's config in foundry.toml.
