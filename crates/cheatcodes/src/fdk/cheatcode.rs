@@ -21,7 +21,7 @@ impl Cheatcode for loadContract_0Call {
     fn apply_stateful<FEN: FoundryEvmNetwork>(&self, ccx: &mut CheatsCtxt<'_, '_, FEN>) -> Result {
         let Self { contractName } = self;
         let chain_id = ccx.ecx.cfg().chain_id;
-        let chain = get_chain(ccx.state, &chain_id.to_string())?;
+        let chain = get_chain_by_id(ccx.state, chain_id)?;
         load_contract(ccx.state, chain, contractName).map(|address| address.abi_encode())
     }
 }
@@ -29,8 +29,7 @@ impl Cheatcode for loadContract_0Call {
 impl Cheatcode for loadContract_1Call {
     fn apply_stateful<FEN: FoundryEvmNetwork>(&self, ccx: &mut CheatsCtxt<'_, '_, FEN>) -> Result {
         let Self { contractName, chainAlias } = self;
-        let chain_id = chain_alias_to_id(ccx.state, chainAlias)?;
-        let chain = get_chain(ccx.state, &chain_id.to_string())?;
+        let chain = get_chain_by_alias(ccx.state, chainAlias)?;
         load_contract(ccx.state, chain, contractName).map(|address| address.abi_encode())
     }
 }
@@ -40,7 +39,7 @@ impl Cheatcode for loadContract_2Call {
         let Self { contractName, chainId } = self;
         ensure!(*chainId <= U256::from(u64::MAX), "chain ID must be less than 2^64");
         let chain_id = chainId.to::<u64>();
-        let chain = get_chain(state, &chain_id.to_string())?;
+        let chain = get_chain_by_id(state, chain_id)?;
         load_contract(state, chain, contractName).map(|address| address.abi_encode())
     }
 }
@@ -141,21 +140,37 @@ fn chain_id_to_alias<FEN: FoundryEvmNetwork>(
     }
 }
 
-fn get_chain<FEN: FoundryEvmNetwork>(
+fn get_chain_by_alias<FEN: FoundryEvmNetwork>(
     state: &mut Cheatcodes<FEN>,
     chain_alias: &str,
 ) -> Result<Chain> {
     let chain_id = chain_alias_to_id(state, chain_alias)?;
+    get_chain(state, chain_alias, chain_id)
+}
+
+fn get_chain_by_id<FEN: FoundryEvmNetwork>(
+    state: &mut Cheatcodes<FEN>,
+    chain_id: u64,
+) -> Result<Chain> {
     let chain_alias = chain_id_to_alias(state, chain_id)?;
 
+    get_chain(state, &chain_alias, chain_id)
+}
+
+fn get_chain<FEN: FoundryEvmNetwork>(
+    state: &mut Cheatcodes<FEN>,
+    chain_alias: &str,
+    chain_id: u64,
+) -> Result<Chain> {
     let chain = AlloyChain::from_id(chain_id);
     let chain_name = chain.to_string();
     let rpc_url =
         state.config.rpc_endpoint(&chain_name).ok().and_then(|e| e.url().ok()).unwrap_or_default();
+
     Ok(Chain {
         name: chain_name,
         chainId: U256::from(chain_id),
-        chainAlias: chain_alias,
+        chainAlias: chain_alias.to_string(),
         rpcUrl: rpc_url,
     })
 }
