@@ -69,9 +69,8 @@ impl Cheatcode for deployImmutable_0Call {
         };
 
         let address_bytes = deploy_call.apply_full(ccx, executor)?;
-
-        tracing::info!(address_bytes, "address bytes");
-        let address = Address::from_slice(&address_bytes);
+        let address = Address::abi_decode(&address_bytes)
+            .map_err(|e| fmt_err!("failed to decode address: {}", e))?;
         
         // Extract contract name from artifact for deployment tracking
         let contract_name = extract_contract_name(artifact);
@@ -112,7 +111,8 @@ impl Cheatcode for deployImmutable_1Call {
         };
 
         let address_bytes = deploy_call.apply_full(ccx, executor)?;
-        let address = Address::from_slice(&address_bytes);
+        let address = Address::abi_decode(&address_bytes)
+            .map_err(|e| fmt_err!("failed to decode address: {}", e))?;
         
         // Extract contract name from artifact for deployment tracking
         let contract_name = extract_contract_name(artifact);
@@ -152,7 +152,8 @@ impl Cheatcode for deployLogicCall {
         };
 
         let address_bytes = deploy_call.apply_full(ccx, executor)?;
-        let address = Address::from_slice(&address_bytes);
+        let address = Address::abi_decode(&address_bytes)
+            .map_err(|e| fmt_err!("failed to decode address: {}", e))?;
         
         // Extract contract name and save as {contractName}Logic
         let contract_name = extract_contract_name(artifact);
@@ -741,7 +742,8 @@ fn deploy_proxy<FEN: FoundryEvmNetwork>(
     };
 
     let logic_address_bytes = logic_deploy.apply_full(ccx, executor)?;
-    let logic_address = Address::from_slice(&logic_address_bytes);
+    let logic_address = Address::abi_decode(&logic_address_bytes)
+        .map_err(|e| fmt_err!("failed to decode logic address: {}", e))?;
 
     // Save logic contract as {contractName}Logic
     let logic_name = format!("{}Logic", contract_name);
@@ -773,7 +775,8 @@ fn deploy_proxy<FEN: FoundryEvmNetwork>(
     };
 
     let proxy_address_bytes = proxy_deploy.apply_full(ccx, executor)?;
-    let proxy_address = Address::from_slice(&proxy_address_bytes);
+    let proxy_address = Address::abi_decode(&proxy_address_bytes)
+        .map_err(|e| fmt_err!("failed to decode proxy address: {}", e))?;
 
     // Save proxy as {contractName}Proxy
     let proxy_name = format!("{}Proxy", contract_name);
@@ -842,7 +845,8 @@ fn upgrade_proxy<FEN: FoundryEvmNetwork>(
     };
 
     let new_logic_address_bytes = logic_deploy.apply_full(ccx, executor)?;
-    let new_logic_address = Address::from_slice(&new_logic_address_bytes);
+    let new_logic_address = Address::abi_decode(&new_logic_address_bytes)
+        .map_err(|e| fmt_err!("failed to decode new logic address: {}", e))?;
 
     // Save new logic contract
     let logic_name = format!("{}Logic", contract_name);
@@ -959,7 +963,8 @@ fn get_or_deploy_proxy_admin<FEN: FoundryEvmNetwork>(
     };
 
     let address_bytes = deploy_call.apply_full(ccx, executor)?;
-    let address = Address::from_slice(&address_bytes);
+    let address = Address::abi_decode(&address_bytes)
+        .map_err(|e| fmt_err!("failed to decode ProxyAdmin address: {}", e))?;
 
     // Save ProxyAdmin
     save_deployment_address(
