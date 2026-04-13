@@ -53,25 +53,30 @@ impl Cheatcode for deployImmutable_0Call {
         executor: &mut dyn CheatcodesExecutor<FEN>,
     ) -> Result {
         let chain_id = ccx.ecx.cfg().chain_id;
-        let Self { contractName, constructorArgs } = self;
+        let Self { artifact, constructorArgs } = self;
         
         // Get deployer address before deployment
         let deployer = ccx.state
             .get_prank(ccx.ecx.journal().depth())
             .map_or(ccx.caller, |prank| prank.new_caller);
 
+        // Resolve artifact path from input (could be name, path, or full path:contract)
+        let artifact_path = contract_name_to_artifact_path(ccx.state, artifact);
+
         let deploy_call = deployCode_1Call {
-            artifactPath: contractName.clone(),
+            artifactPath: artifact_path,
             constructorArgs: constructorArgs.clone(),
         };
 
         let address_bytes = deploy_call.apply_full(ccx, executor)?;
         let address = Address::from_slice(&address_bytes);
         
+        // Extract contract name from artifact for deployment tracking
+        let contract_name = extract_contract_name(artifact);
         save_deployment_address(
             ccx,
             chain_id,
-            contractName,
+            &contract_name,
             address,
             deployer,
             Some(constructorArgs),
@@ -89,25 +94,30 @@ impl Cheatcode for deployImmutable_1Call {
         executor: &mut dyn CheatcodesExecutor<FEN>,
     ) -> Result {
         let chain_id = ccx.ecx.cfg().chain_id;
-        let Self { contractName } = self;
+        let Self { artifact } = self;
         
         // Get deployer address before deployment
         let deployer = ccx.state
             .get_prank(ccx.ecx.journal().depth())
             .map_or(ccx.caller, |prank| prank.new_caller);
 
+        // Resolve artifact path from input
+        let artifact_path = contract_name_to_artifact_path(ccx.state, artifact);
+
         let deploy_call = deployCode_1Call {
-            artifactPath: contractName.clone(),
+            artifactPath: artifact_path,
             constructorArgs: Bytes::new(),
         };
 
         let address_bytes = deploy_call.apply_full(ccx, executor)?;
         let address = Address::from_slice(&address_bytes);
         
+        // Extract contract name from artifact for deployment tracking
+        let contract_name = extract_contract_name(artifact);
         save_deployment_address(
             ccx,
             chain_id,
-            contractName,
+            &contract_name,
             address,
             deployer,
             Some(&Bytes::new()),
@@ -125,22 +135,26 @@ impl Cheatcode for deployLogicCall {
         executor: &mut dyn CheatcodesExecutor<FEN>,
     ) -> Result {
         let chain_id = ccx.ecx.cfg().chain_id;
-        let Self { contractName, constructorArgs } = self;
+        let Self { artifact, constructorArgs } = self;
         
         let deployer = ccx.state
             .get_prank(ccx.ecx.journal().depth())
             .map_or(ccx.caller, |prank| prank.new_caller);
 
+        // Resolve artifact path from input
+        let artifact_path = contract_name_to_artifact_path(ccx.state, artifact);
+
         let deploy_call = deployCode_1Call {
-            artifactPath: contractName.clone(),
+            artifactPath: artifact_path,
             constructorArgs: constructorArgs.clone(),
         };
 
         let address_bytes = deploy_call.apply_full(ccx, executor)?;
         let address = Address::from_slice(&address_bytes);
         
-        // Save as {contractName}Logic
-        let logic_name = format!("{}Logic", contractName);
+        // Extract contract name and save as {contractName}Logic
+        let contract_name = extract_contract_name(artifact);
+        let logic_name = format!("{}Logic", contract_name);
         save_deployment_address(
             ccx,
             chain_id,
@@ -161,11 +175,11 @@ impl Cheatcode for deployProxy_0Call {
         ccx: &mut CheatsCtxt<'_, '_, FEN>,
         executor: &mut dyn CheatcodesExecutor<FEN>,
     ) -> Result {
-        let Self { contractName, constructorArgs, initializationData, proxyAdmin } = self;
+        let Self { artifact, constructorArgs, initializationData, proxyAdmin } = self;
         deploy_proxy(
             ccx,
             executor,
-            contractName,
+            artifact,
             Some(constructorArgs),
             initializationData,
             Some(*proxyAdmin),
@@ -179,11 +193,11 @@ impl Cheatcode for deployProxy_1Call {
         ccx: &mut CheatsCtxt<'_, '_, FEN>,
         executor: &mut dyn CheatcodesExecutor<FEN>,
     ) -> Result {
-        let Self { contractName, initializationData, proxyAdmin } = self;
+        let Self { artifact, initializationData, proxyAdmin } = self;
         deploy_proxy(
             ccx,
             executor,
-            contractName,
+            artifact,
             None,
             initializationData,
             Some(*proxyAdmin),
@@ -197,8 +211,8 @@ impl Cheatcode for deployProxy_2Call {
         ccx: &mut CheatsCtxt<'_, '_, FEN>,
         executor: &mut dyn CheatcodesExecutor<FEN>,
     ) -> Result {
-        let Self { contractName, initializationData } = self;
-        deploy_proxy(ccx, executor, contractName, None, initializationData, None)
+        let Self { artifact, initializationData } = self;
+        deploy_proxy(ccx, executor, artifact, None, initializationData, None)
     }
 }
 
@@ -208,8 +222,8 @@ impl Cheatcode for deployProxy_3Call {
         ccx: &mut CheatsCtxt<'_, '_, FEN>,
         executor: &mut dyn CheatcodesExecutor<FEN>,
     ) -> Result {
-        let Self { contractName } = self;
-        deploy_proxy(ccx, executor, contractName, None, &Bytes::new(), None)
+        let Self { artifact } = self;
+        deploy_proxy(ccx, executor, artifact, None, &Bytes::new(), None)
     }
 }
 
@@ -219,11 +233,11 @@ impl Cheatcode for upgradeProxy_0Call {
         ccx: &mut CheatsCtxt<'_, '_, FEN>,
         executor: &mut dyn CheatcodesExecutor<FEN>,
     ) -> Result {
-        let Self { contractName, constructorArgs, initializationData } = self;
+        let Self { artifact, constructorArgs, initializationData } = self;
         upgrade_proxy(
             ccx,
             executor,
-            contractName,
+            artifact,
             Some(constructorArgs),
             initializationData,
         )
@@ -236,8 +250,8 @@ impl Cheatcode for upgradeProxy_1Call {
         ccx: &mut CheatsCtxt<'_, '_, FEN>,
         executor: &mut dyn CheatcodesExecutor<FEN>,
     ) -> Result {
-        let Self { contractName, initializationData } = self;
-        upgrade_proxy(ccx, executor, contractName, None, initializationData)
+        let Self { artifact, initializationData } = self;
+        upgrade_proxy(ccx, executor, artifact, None, initializationData)
     }
 }
 
@@ -247,8 +261,8 @@ impl Cheatcode for upgradeProxy_2Call {
         ccx: &mut CheatsCtxt<'_, '_, FEN>,
         executor: &mut dyn CheatcodesExecutor<FEN>,
     ) -> Result {
-        let Self { contractName } = self;
-        upgrade_proxy(ccx, executor, contractName, None, &Bytes::new())
+        let Self { artifact } = self;
+        upgrade_proxy(ccx, executor, artifact, None, &Bytes::new())
     }
 }
 
@@ -309,6 +323,108 @@ impl Cheatcode for loadConfig_2Call {
 #[derive(serde::Deserialize)]
 struct DeploymentArtifact {
     address: Address,
+}
+
+/// Extracts the logical contract name from an artifact input.
+///
+/// Handles all input formats:
+/// - "contracts/tokens/ERC20.sol:MyToken" → "MyToken"
+/// - "ERC20.sol:MyToken" → "MyToken"
+/// - "contracts/tokens/ERC20.sol" → "ERC20"
+/// - "ERC20.sol" → "ERC20"
+/// - "MyToken" → "MyToken"
+fn extract_contract_name(input: &str) -> String {
+    // If input contains ':', the contract name is after the colon
+    if let Some(colon_pos) = input.find(':') {
+        return input[colon_pos + 1..].to_string();
+    }
+    
+    // If input ends with .sol, extract the filename without extension
+    if input.ends_with(".sol") {
+        let path = std::path::Path::new(input);
+        return path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(input)
+            .to_string();
+    }
+    
+    // Otherwise, it's just the contract name
+    input.to_string()
+}
+
+/// Converts a contract name or path to a proper artifact path for use with deployCode.
+///
+/// Handles multiple input formats and resolves them to: `<path/.../xyz.sol>:<contract_name>`
+///
+/// Input formats (in priority order):
+/// 1. Full path with contract: "contracts/tokens/ERC20.sol:MyToken" → unchanged
+/// 2. Partial path with contract: "ERC20.sol:MyToken" → "src/ERC20.sol:MyToken"
+/// 3. Full path with .sol: "contracts/tokens/ERC20.sol" → "contracts/tokens/ERC20.sol:ERC20"
+/// 4. Partial path with .sol: "ERC20.sol" → "src/ERC20.sol:ERC20"
+/// 5. Path without .sol: "src/dex/v1/UniswapV2" → "src/dex/v1/UniswapV2.sol:UniswapV2"
+/// 6. Contract name only: "MyToken" → "src/MyToken.sol:MyToken"
+///
+/// Where `src` is the source directory from Foundry config (e.g., "src", "contracts")
+fn contract_name_to_artifact_path<FEN: FoundryEvmNetwork>(
+    state: &Cheatcodes<FEN>,
+    input: &str,
+) -> String {
+    // Get the source directory from config paths (e.g., "src", "contracts")
+    let src_dir = state.config.paths.sources
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("src");
+    
+    // Check if input already contains `:` (path:contract format)
+    if let Some(colon_pos) = input.find(':') {
+        let (path_part, _contract_part) = input.split_at(colon_pos);
+        
+        // Priority 1: Full path with contract - "contracts/tokens/ERC20.sol:MyToken"
+        // If path contains directory separator, assume it's a full or relative path
+        if path_part.contains('/') || path_part.contains('\\') {
+            return input.to_string();
+        }
+        
+        // Priority 2: Partial path with contract - "ERC20.sol:MyToken"
+        // Prepend source directory
+        return format!("{}/{}", src_dir, input);
+    }
+    
+    // Check if input ends with .sol (it's a path without contract name)
+    if input.ends_with(".sol") {
+        // Extract contract name from the .sol file
+        let path = std::path::Path::new(input);
+        let contract_name = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(input);
+        
+        // Priority 3: Full path without contract - "contracts/tokens/ERC20.sol"
+        if input.contains('/') || input.contains('\\') {
+            return format!("{}:{}", input, contract_name);
+        }
+        
+        // Priority 4: Partial path without contract - "ERC20.sol"
+        return format!("{}/{}:{}", src_dir, input, contract_name);
+    }
+    
+    // Check if input contains a path separator (it's a path without .sol extension)
+    if input.contains('/') || input.contains('\\') {
+        // Extract contract name from the path (last component)
+        let path = std::path::Path::new(input);
+        let contract_name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(input);
+        
+        // Priority 5: Path without extension - "src/dex/v1/UniswapV2"
+        return format!("{}.sol:{}", input, contract_name);
+    }
+    
+    // Priority 6: Contract name only - "MyToken"
+    // Construct full path: <src>/<contract_name>.sol:<contract_name>
+    format!("{}/{}.sol:{}", src_dir, input, input)
 }
 
 fn load_contract<FEN: FoundryEvmNetwork>(
@@ -505,7 +621,7 @@ fn deployments_root<FEN: FoundryEvmNetwork>(state: &Cheatcodes<FEN>) -> PathBuf 
 fn deploy_proxy<FEN: FoundryEvmNetwork>(
     ccx: &mut CheatsCtxt<'_, '_, FEN>,
     executor: &mut dyn CheatcodesExecutor<FEN>,
-    contract_name: &str,
+    artifact: &str,
     constructor_args: Option<&Bytes>,
     initialization_data: &Bytes,
     proxy_admin: Option<Address>,
@@ -515,15 +631,21 @@ fn deploy_proxy<FEN: FoundryEvmNetwork>(
         .get_prank(ccx.ecx.journal().depth())
         .map_or(ccx.caller, |prank| prank.new_caller);
 
+    // Extract contract name from artifact input
+    let contract_name = extract_contract_name(artifact);
+
     // 1. Deploy the logic contract
+    // Resolve artifact path from input
+    let artifact_path = contract_name_to_artifact_path(ccx.state, artifact);
+    
     let logic_deploy = if let Some(args) = constructor_args {
         deployCode_1Call {
-            artifactPath: contract_name.to_string(),
+            artifactPath: artifact_path.clone(),
             constructorArgs: args.clone(),
         }
     } else {
         deployCode_1Call {
-            artifactPath: contract_name.to_string(),
+            artifactPath: artifact_path,
             constructorArgs: Bytes::new(),
         }
     };
@@ -579,7 +701,7 @@ fn deploy_proxy<FEN: FoundryEvmNetwork>(
     save_deployment_address(
         ccx,
         chain_id,
-        contract_name,
+        &contract_name,
         proxy_address,
         deployer,
         None,
@@ -596,7 +718,7 @@ fn deploy_proxy<FEN: FoundryEvmNetwork>(
 fn upgrade_proxy<FEN: FoundryEvmNetwork>(
     ccx: &mut CheatsCtxt<'_, '_, FEN>,
     executor: &mut dyn CheatcodesExecutor<FEN>,
-    contract_name: &str,
+    artifact: &str,
     constructor_args: Option<&Bytes>,
     _initialization_data: &Bytes,
 ) -> Result {
@@ -606,19 +728,25 @@ fn upgrade_proxy<FEN: FoundryEvmNetwork>(
         .get_prank(ccx.ecx.journal().depth())
         .map_or(ccx.caller, |prank| prank.new_caller);
 
+    // Extract contract name from artifact input
+    let contract_name = extract_contract_name(artifact);
+
     // 1. Load the existing proxy address
     let proxy_name = format!("{}Proxy", contract_name);
     let _proxy_address = load_contract(ccx.state, chain.clone(), &proxy_name)?;
 
     // 2. Deploy the new logic contract
+    // Resolve artifact path from input
+    let artifact_path = contract_name_to_artifact_path(ccx.state, artifact);
+    
     let logic_deploy = if let Some(args) = constructor_args {
         deployCode_1Call {
-            artifactPath: contract_name.to_string(),
+            artifactPath: artifact_path.clone(),
             constructorArgs: args.clone(),
         }
     } else {
         deployCode_1Call {
-            artifactPath: contract_name.to_string(),
+            artifactPath: artifact_path,
             constructorArgs: Bytes::new(),
         }
     };
@@ -796,5 +924,254 @@ fn load_config<FEN: FoundryEvmNetwork>(
             let chain_alias = chain_id_to_alias(state, chain_id)?;
             Err(fmt_err!("no config found for {contract_name} on chain {chain_alias} (ID: {chain_id})"))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::CheatsConfig;
+    use foundry_compilers::ProjectPathsConfig;
+
+    fn create_test_state() -> Cheatcodes<foundry_evm_core::evm::EthEvmNetwork> {
+        let mut paths = ProjectPathsConfig::builder().build_with_root("./");
+        paths.sources = std::path::PathBuf::from("src");
+        
+        let config = CheatsConfig {
+            paths,
+            ..Default::default()
+        };
+
+        Cheatcodes::new(std::sync::Arc::new(config))
+    }
+
+    #[test]
+    fn test_contract_name_to_artifact_path_priority_1_full_path_with_contract() {
+        let state = create_test_state();
+        
+        // Priority 1: Full path with contract - unchanged
+        assert_eq!(
+            contract_name_to_artifact_path(&state, "contracts/tokens/ERC20.sol:MyToken"),
+            "contracts/tokens/ERC20.sol:MyToken"
+        );
+        
+        assert_eq!(
+            contract_name_to_artifact_path(&state, "lib/openzeppelin/contracts/token/ERC20/ERC20.sol:ERC20"),
+            "lib/openzeppelin/contracts/token/ERC20/ERC20.sol:ERC20"
+        );
+    }
+
+    #[test]
+    fn test_contract_name_to_artifact_path_priority_2_partial_path_with_contract() {
+        let state = create_test_state();
+        
+        // Priority 2: Partial path with contract - prepend src dir
+        assert_eq!(
+            contract_name_to_artifact_path(&state, "ERC20.sol:MyToken"),
+            "src/ERC20.sol:MyToken"
+        );
+        
+        assert_eq!(
+            contract_name_to_artifact_path(&state, "Token.sol:CustomToken"),
+            "src/Token.sol:CustomToken"
+        );
+    }
+
+    #[test]
+    fn test_contract_name_to_artifact_path_priority_3_full_path_no_contract() {
+        let state = create_test_state();
+        
+        // Priority 3: Full path without contract - append contract name from file
+        assert_eq!(
+            contract_name_to_artifact_path(&state, "contracts/tokens/ERC20.sol"),
+            "contracts/tokens/ERC20.sol:ERC20"
+        );
+        
+        assert_eq!(
+            contract_name_to_artifact_path(&state, "lib/utils/SafeMath.sol"),
+            "lib/utils/SafeMath.sol:SafeMath"
+        );
+    }
+
+    #[test]
+    fn test_contract_name_to_artifact_path_priority_4_partial_path_no_contract() {
+        let state = create_test_state();
+        
+        // Priority 4: Partial path without contract - prepend src and append contract name
+        assert_eq!(
+            contract_name_to_artifact_path(&state, "ERC20.sol"),
+            "src/ERC20.sol:ERC20"
+        );
+        
+        assert_eq!(
+            contract_name_to_artifact_path(&state, "MyToken.sol"),
+            "src/MyToken.sol:MyToken"
+        );
+    }
+
+    #[test]
+    fn test_contract_name_to_artifact_path_priority_5_contract_name_only() {
+        let state = create_test_state();
+        
+        // Priority 5: Contract name only - construct full path
+        assert_eq!(
+            contract_name_to_artifact_path(&state, "MyToken"),
+            "src/MyToken.sol:MyToken"
+        );
+        
+        assert_eq!(
+            contract_name_to_artifact_path(&state, "ERC20"),
+            "src/ERC20.sol:ERC20"
+        );
+        
+        assert_eq!(
+            contract_name_to_artifact_path(&state, "ProxyAdmin"),
+            "src/ProxyAdmin.sol:ProxyAdmin"
+        );
+    }
+
+    #[test]
+    fn test_contract_name_to_artifact_path_with_custom_src_dir() {
+        let mut state = create_test_state();
+        std::sync::Arc::get_mut(&mut state.config).unwrap().paths.sources = PathBuf::from("contracts");
+        
+        // Should use "contracts" instead of "src"
+        assert_eq!(
+            contract_name_to_artifact_path(&state, "MyToken"),
+            "contracts/MyToken.sol:MyToken"
+        );
+        
+        assert_eq!(
+            contract_name_to_artifact_path(&state, "ERC20.sol:Token"),
+            "contracts/ERC20.sol:Token"
+        );
+    }
+    
+    #[test]
+    fn test_contract_name_to_artifact_path_windows_paths() {
+        let state = create_test_state();
+        
+        // Windows-style paths should also work
+        assert_eq!(
+            contract_name_to_artifact_path(&state, "contracts\\tokens\\ERC20.sol:MyToken"),
+            "contracts\\tokens\\ERC20.sol:MyToken"
+        );
+    }
+
+    #[test]
+    fn test_extract_contract_name_from_full_path_with_contract() {
+        assert_eq!(
+            extract_contract_name("contracts/tokens/ERC20.sol:MyToken"),
+            "MyToken"
+        );
+        
+        assert_eq!(
+            extract_contract_name("lib/openzeppelin/ERC721.sol:CustomNFT"),
+            "CustomNFT"
+        );
+    }
+
+    #[test]
+    fn test_extract_contract_name_from_partial_path_with_contract() {
+        assert_eq!(
+            extract_contract_name("ERC20.sol:MyToken"),
+            "MyToken"
+        );
+    }
+
+    #[test]
+    fn test_extract_contract_name_from_full_path_no_contract() {
+        assert_eq!(
+            extract_contract_name("contracts/tokens/ERC20.sol"),
+            "ERC20"
+        );
+        
+        assert_eq!(
+            extract_contract_name("lib/utils/SafeMath.sol"),
+            "SafeMath"
+        );
+    }
+
+    #[test]
+    fn test_extract_contract_name_from_partial_path_no_contract() {
+        assert_eq!(
+            extract_contract_name("ERC20.sol"),
+            "ERC20"
+        );
+        
+        assert_eq!(
+            extract_contract_name("MyToken.sol"),
+            "MyToken"
+        );
+    }
+
+    #[test]
+    fn test_extract_contract_name_from_name_only() {
+        assert_eq!(
+            extract_contract_name("MyToken"),
+            "MyToken"
+        );
+        
+        assert_eq!(
+            extract_contract_name("ERC20"),
+            "ERC20"
+        );
+    }
+
+    #[test]
+    fn test_no_double_conversion_bug() {
+        let state = create_test_state();
+        
+        // If user provides full path, it should NOT be modified
+        let full_path = "contracts/tokens/ERC20.sol:MyToken";
+        let artifact_path = contract_name_to_artifact_path(&state, full_path);
+        assert_eq!(artifact_path, "contracts/tokens/ERC20.sol:MyToken");
+        
+        // Extract contract name from the ORIGINAL input (not the artifact_path)
+        let contract_name = extract_contract_name(full_path);
+        assert_eq!(contract_name, "MyToken");
+        
+        // If we mistakenly converted contract_name back to artifact path,
+        // we'd get "src/MyToken.sol:MyToken" which is WRONG
+        // This test ensures we don't do that
+        let wrong_path = contract_name_to_artifact_path(&state, &contract_name);
+        assert_eq!(wrong_path, "src/MyToken.sol:MyToken");
+        assert_ne!(wrong_path, artifact_path, "Should NOT convert extracted name back to artifact path");
+    }
+
+    #[test]
+    fn test_artifact_path_with_subdirectories() {
+        let state = create_test_state();
+        
+        // User provides path with subdirectories and .sol extension
+        let result = contract_name_to_artifact_path(&state, "src/dex/UniswapV2.sol");
+        assert_eq!(result, "src/dex/UniswapV2.sol:UniswapV2");
+        
+        // With different src directory
+        let mut state2 = create_test_state();
+        std::sync::Arc::get_mut(&mut state2.config).unwrap().paths.sources = PathBuf::from("contracts");
+        let result2 = contract_name_to_artifact_path(&state2, "contracts/utils/Math.sol");
+        assert_eq!(result2, "contracts/utils/Math.sol:Math");
+    }
+
+    #[test]
+    fn test_contract_name_to_artifact_path_priority_5_path_without_extension() {
+        let state = create_test_state();
+        
+        // Priority 5: Path without .sol extension
+        assert_eq!(
+            contract_name_to_artifact_path(&state, "src/dex/v1/UniswapV2"),
+            "src/dex/v1/UniswapV2.sol:UniswapV2"
+        );
+        
+        assert_eq!(
+            contract_name_to_artifact_path(&state, "contracts/tokens/ERC20"),
+            "contracts/tokens/ERC20.sol:ERC20"
+        );
+        
+        assert_eq!(
+            contract_name_to_artifact_path(&state, "lib/utils/SafeMath"),
+            "lib/utils/SafeMath.sol:SafeMath"
+        );
     }
 }

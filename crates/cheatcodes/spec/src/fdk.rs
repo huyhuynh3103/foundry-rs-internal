@@ -28,43 +28,53 @@ interface Fdk {
     function loadContract(string calldata contractName, uint256 chainId) external pure returns (address);
 
     /// Deploys an immutable contract.
+    /// @param artifact Contract identifier - can be: name ("MyToken"), path ("contracts/Token.sol"), or full ("contracts/Token.sol:MyToken")
     #[cheatcode(group = Scripting, safety = Safe)]
-    function deployImmutable(string calldata contractName, bytes calldata constructorArgs) external pure returns (address);
+    function deployImmutable(string calldata artifact, bytes calldata constructorArgs) external pure returns (address);
     /// Deploys an immutable contract (no constructor args).
+    /// @param artifact Contract identifier - can be: name ("MyToken"), path ("contracts/Token.sol"), or full ("contracts/Token.sol:MyToken")
     #[cheatcode(group = Scripting, safety = Safe)]
-    function deployImmutable(string calldata contractName) external pure returns (address);
+    function deployImmutable(string calldata artifact) external pure returns (address);
 
     /// Deploys a logic contract (implementation).
+    /// @param artifact Contract identifier - can be: name ("MyToken"), path ("contracts/Token.sol"), or full ("contracts/Token.sol:MyToken")
     #[cheatcode(group = Scripting, safety = Safe)]
-    function deployLogic(string calldata contractName, bytes calldata constructorArgs) external pure returns (address);
+    function deployLogic(string calldata artifact, bytes calldata constructorArgs) external pure returns (address);
 
     /// Deploys a TransparentUpgradeableProxy with a new logic contract.
+    /// @param artifact Contract identifier - can be: name ("MyToken"), path ("contracts/Token.sol"), or full ("contracts/Token.sol:MyToken")
     #[cheatcode(group = Scripting, safety = Safe)]
-    function deployProxy(string calldata contractName, bytes calldata constructorArgs, bytes calldata initializationData, address proxyAdmin) external pure returns (address);
+    function deployProxy(string calldata artifact, bytes calldata constructorArgs, bytes calldata initializationData, address proxyAdmin) external pure returns (address);
 
     /// Deploys a TransparentUpgradeableProxy with a new logic contract (no constructor args).
+    /// @param artifact Contract identifier - can be: name ("MyToken"), path ("contracts/Token.sol"), or full ("contracts/Token.sol:MyToken")
     #[cheatcode(group = Scripting, safety = Safe)]
-    function deployProxy(string calldata contractName, bytes calldata initializationData, address proxyAdmin) external pure returns (address);
+    function deployProxy(string calldata artifact, bytes calldata initializationData, address proxyAdmin) external pure returns (address);
 
     /// Deploys a TransparentUpgradeableProxy with a new logic contract (loads ProxyAdmin from deployments).
+    /// @param artifact Contract identifier - can be: name ("MyToken"), path ("contracts/Token.sol"), or full ("contracts/Token.sol:MyToken")
     #[cheatcode(group = Scripting, safety = Safe)]
-    function deployProxy(string calldata contractName, bytes calldata initializationData) external pure returns (address);
+    function deployProxy(string calldata artifact, bytes calldata initializationData) external pure returns (address);
 
     /// Deploys a TransparentUpgradeableProxy with a new logic contract (no init data, loads ProxyAdmin).
+    /// @param artifact Contract identifier - can be: name ("MyToken"), path ("contracts/Token.sol"), or full ("contracts/Token.sol:MyToken")
     #[cheatcode(group = Scripting, safety = Safe)]
-    function deployProxy(string calldata contractName) external pure returns (address);
+    function deployProxy(string calldata artifact) external pure returns (address);
 
     /// Upgrades an existing proxy to a new logic contract.
+    /// @param artifact Contract identifier - can be: name ("MyToken"), path ("contracts/Token.sol"), or full ("contracts/Token.sol:MyToken")
     #[cheatcode(group = Scripting, safety = Safe)]
-    function upgradeProxy(string calldata contractName, bytes calldata constructorArgs, bytes calldata initializationData) external pure returns (address);
+    function upgradeProxy(string calldata artifact, bytes calldata constructorArgs, bytes calldata initializationData) external pure returns (address);
 
     /// Upgrades an existing proxy to a new logic contract (no constructor args).
+    /// @param artifact Contract identifier - can be: name ("MyToken"), path ("contracts/Token.sol"), or full ("contracts/Token.sol:MyToken")
     #[cheatcode(group = Scripting, safety = Safe)]
-    function upgradeProxy(string calldata contractName, bytes calldata initializationData) external pure returns (address);
+    function upgradeProxy(string calldata artifact, bytes calldata initializationData) external pure returns (address);
 
     /// Upgrades an existing proxy to a new logic contract (no init data).
+    /// @param artifact Contract identifier - can be: name ("MyToken"), path ("contracts/Token.sol"), or full ("contracts/Token.sol:MyToken")
     #[cheatcode(group = Scripting, safety = Safe)]
-    function upgradeProxy(string calldata contractName) external pure returns (address);
+    function upgradeProxy(string calldata artifact) external pure returns (address);
 
     // ============================================================================
     // Contract Configuration Management
