@@ -441,3 +441,89 @@ contract MultisigUpgradeScript is Script {
 - All transaction details are saved for audit trail
 - No accidental broadcasts from multisig (which would fail)
 - Clean separation between deployment logic and multisig execution
+
+### Contract Configuration Management
+
+Store and load contract configurations across chains. Useful for deploying the same contract with the same settings on multiple chains:
+
+```solidity
+contract DeployWithConfigScript is Script {
+    struct AxieConfig {
+        uint256 withdrawalLimit;
+        address[] allowedAddresses;
+        uint256 cooldownPeriod;
+    }
+    
+    function run() external {
+        // Define configuration once
+        AxieConfig memory config = AxieConfig({
+            withdrawalLimit: 1000 ether,
+            allowedAddresses: new address[](2),
+            cooldownPeriod: 7 days
+        });
+        config.allowedAddresses[0] = 0x1234...;
+        config.allowedAddresses[1] = 0x5678...;
+        
+        // Store config for current chain
+        fdk.storeConfig("Axie", abi.encode(config));
+        
+        // Store for specific chains
+        fdk.storeConfig("Axie", "mainnet", abi.encode(config));
+        fdk.storeConfig("Axie", "optimism", abi.encode(config));
+        fdk.storeConfig("Axie", 42161, abi.encode(config)); // Arbitrum by ID
+        
+        vm.startBroadcast();
+        
+        // Deploy with stored config
+        bytes memory configBytes = fdk.loadConfig("Axie");
+        AxieConfig memory loadedConfig = abi.decode(configBytes, (AxieConfig));
+        
+        address axie = deployImmutable("Axie", abi.encode(
+            loadedConfig.withdrawalLimit,
+            loadedConfig.allowedAddresses,
+            loadedConfig.cooldownPeriod
+        ));
+        
+        vm.stopBroadcast();
+    }
+}
+```
+
+**Cross-chain Configuration:**
+```solidity
+contract DeployAcrossChainsScript is Script {
+    function run() external {
+        // Same config can be deployed on different chains at different times
+        bytes memory config = fdk.loadConfig("Axie", "mainnet");
+        
+        // Deploy to current chain using mainnet's config
+        vm.startBroadcast();
+        deployImmutable("Axie", config);
+        vm.stopBroadcast();
+    }
+}
+```
+
+**API:**
+- `storeConfig(contractName, config)` - Store for current chain
+- `storeConfig(contractName, chainAlias, config)` - Store for specific chain by alias
+- `storeConfig(contractName, chainId, config)` - Store for specific chain by ID
+- `loadConfig(contractName)` - Load from current chain
+- `loadConfig(contractName, chainAlias)` - Load from specific chain by alias
+- `loadConfig(contractName, chainId)` - Load from specific chain by ID
+
+**Use Cases:**
+- Deploy contracts with identical configurations across multiple chains
+- Share configuration between different deployment scripts
+- Version control your contract configurations as code
+- Ensure consistency in multi-chain deployments
+
+**Complete Examples:**
+
+See `config_example.sol` for comprehensive examples including:
+- Storing configuration for multiple chains
+- Loading and deploying with stored config
+- Cross-chain configuration sharing
+- Environment-based configurations
+- Integration with upgradeable deployments
+- Shared configuration libraries

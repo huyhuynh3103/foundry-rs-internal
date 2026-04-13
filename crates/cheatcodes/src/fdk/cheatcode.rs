@@ -216,6 +216,60 @@ impl Cheatcode for upgradeProxy_2Call {
     }
 }
 
+// ============================================================================
+// Contract Configuration Management
+// ============================================================================
+
+impl Cheatcode for storeConfig_0Call {
+    fn apply_stateful<FEN: FoundryEvmNetwork>(&self, ccx: &mut CheatsCtxt<'_, '_, FEN>) -> Result {
+        let Self { contractName, config } = self;
+        let chain_id = ccx.ecx.cfg().chain_id;
+        store_config(ccx.state, chain_id, contractName, config.clone())
+    }
+}
+
+impl Cheatcode for storeConfig_1Call {
+    fn apply<FEN: FoundryEvmNetwork>(&self, state: &mut Cheatcodes<FEN>) -> Result {
+        let Self { contractName, chainAlias, config } = self;
+        let chain_id = chain_alias_to_id(state, chainAlias)?;
+        store_config(state, chain_id, contractName, config.clone())
+    }
+}
+
+impl Cheatcode for storeConfig_2Call {
+    fn apply<FEN: FoundryEvmNetwork>(&self, state: &mut Cheatcodes<FEN>) -> Result {
+        let Self { contractName, chainId, config } = self;
+        ensure!(*chainId <= U256::from(u64::MAX), "chain ID must be less than 2^64");
+        let chain_id = chainId.to::<u64>();
+        store_config(state, chain_id, contractName, config.clone())
+    }
+}
+
+impl Cheatcode for loadConfig_0Call {
+    fn apply_stateful<FEN: FoundryEvmNetwork>(&self, ccx: &mut CheatsCtxt<'_, '_, FEN>) -> Result {
+        let Self { contractName } = self;
+        let chain_id = ccx.ecx.cfg().chain_id;
+        load_config(ccx.state, chain_id, contractName)
+    }
+}
+
+impl Cheatcode for loadConfig_1Call {
+    fn apply<FEN: FoundryEvmNetwork>(&self, state: &mut Cheatcodes<FEN>) -> Result {
+        let Self { contractName, chainAlias } = self;
+        let chain_id = chain_alias_to_id(state, chainAlias)?;
+        load_config(state, chain_id, contractName)
+    }
+}
+
+impl Cheatcode for loadConfig_2Call {
+    fn apply<FEN: FoundryEvmNetwork>(&self, state: &mut Cheatcodes<FEN>) -> Result {
+        let Self { contractName, chainId } = self;
+        ensure!(*chainId <= U256::from(u64::MAX), "chain ID must be less than 2^64");
+        let chain_id = chainId.to::<u64>();
+        load_config(state, chain_id, contractName)
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct DeploymentArtifact {
     address: Address,
@@ -665,4 +719,46 @@ fn get_or_deploy_proxy_admin<FEN: FoundryEvmNetwork>(
     )?;
 
     Ok(address)
+}
+
+// ============================================================================
+// Contract Configuration Helpers
+// ============================================================================
+
+/// Stores contract configuration for a given chain and contract name.
+fn store_config<FEN: FoundryEvmNetwork>(
+    state: &mut Cheatcodes<FEN>,
+    chain_id: u64,
+    contract_name: &str,
+    config: Bytes,
+) -> Result {
+    state
+        .fdk
+        .contract_configs
+        .entry(chain_id)
+        .or_default()
+        .insert(contract_name.to_string(), config);
+    Ok(Default::default())
+}
+
+/// Loads contract configuration for a given chain and contract name.
+fn load_config<FEN: FoundryEvmNetwork>(
+    state: &mut Cheatcodes<FEN>,
+    chain_id: u64,
+    contract_name: &str,
+) -> Result {
+    let config = state
+        .fdk
+        .contract_configs
+        .get(&chain_id)
+        .and_then(|entries| entries.get(contract_name))
+        .cloned();
+    
+    match config {
+        Some(cfg) => Ok(cfg.abi_encode()),
+        None => {
+            let chain_alias = chain_id_to_alias(state, chain_id)?;
+            Err(fmt_err!("no config found for {contract_name} on chain {chain_alias} (ID: {chain_id})"))
+        }
+    }
 }

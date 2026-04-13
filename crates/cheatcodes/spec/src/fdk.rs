@@ -62,5 +62,33 @@ interface Fdk {
     /// Upgrades an existing proxy to a new logic contract (no init data).
     #[cheatcode(group = Scripting, safety = Safe)]
     function upgradeProxy(string calldata contractName) external pure returns (address);
+
+    // ============================================================================
+    // Contract Configuration Management
+    // ============================================================================
+
+    /// Stores contract configuration for the current chain.
+    #[cheatcode(group = Scripting, safety = Safe)]
+    function storeConfig(string calldata contractName, bytes calldata config) external pure;
+
+    /// Stores contract configuration for a specific chain by alias.
+    #[cheatcode(group = Scripting, safety = Safe)]
+    function storeConfig(string calldata contractName, string calldata chainAlias, bytes calldata config) external pure;
+
+    /// Stores contract configuration for a specific chain by ID.
+    #[cheatcode(group = Scripting, safety = Safe)]
+    function storeConfig(string calldata contractName, uint256 chainId, bytes calldata config) external pure;
+
+    /// Loads contract configuration for the current chain.
+    #[cheatcode(group = Scripting, safety = Safe)]
+    function loadConfig(string calldata contractName) external view returns (bytes memory);
+
+    /// Loads contract configuration for a specific chain by alias.
+    #[cheatcode(group = Scripting, safety = Safe)]
+    function loadConfig(string calldata contractName, string calldata chainAlias) external view returns (bytes memory);
+
+    /// Loads contract configuration for a specific chain by ID.
+    #[cheatcode(group = Scripting, safety = Safe)]
+    function loadConfig(string calldata contractName, uint256 chainId) external view returns (bytes memory);
 }
 }
