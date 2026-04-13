@@ -1,15 +1,17 @@
 //! Implementations of FDK cheatcodes.
 
-use crate::{Cheatcode, Cheatcodes, CheatsCtxt, Fdk::*, Result, Vm::*};
+use crate::{Cheatcode, Cheatcodes, CheatcodesExecutor, CheatsCtxt, Fdk::*, Result, Vm::*};
 use alloy_chains::Chain as AlloyChain;
-use alloy_primitives::{Address, U256};
+use alloy_primitives::{Address, Bytes, U256};
 use alloy_provider::Provider;
 use alloy_sol_types::SolValue;
 use foundry_common::{block_on, fs, provider::get_http_provider};
 use foundry_config::fs_permissions::FsAccessKind;
 use foundry_evm_core::evm::FoundryEvmNetwork;
-use revm::context::ContextTr;
+use revm::context::{ContextTr, JournalTr};
 use std::path::PathBuf;
+
+use super::artifact::{generate_artifact, save_artifact};
 
 impl Cheatcode for fdkVersionCall {
     fn apply<FEN: FoundryEvmNetwork>(&self, _state: &mut Cheatcodes<FEN>) -> Result {
@@ -43,6 +45,43 @@ impl Cheatcode for loadContract_2Call {
         load_contract(state, chain, contractName).map(|address| address.abi_encode())
     }
 }
+
+impl Cheatcode for deployImmutableCall {
+    fn apply_full<FEN: FoundryEvmNetwork>(
+        &self,
+        ccx: &mut CheatsCtxt<'_, '_, FEN>,
+        executor: &mut dyn CheatcodesExecutor<FEN>,
+    ) -> Result {
+        let chain_id = ccx.ecx.cfg().chain_id;
+        let Self { contractName, constructorArgs } = self;
+        
+        // Get deployer address before deployment
+        let deployer = ccx.state
+            .get_prank(ccx.ecx.journal().depth())
+            .map_or(ccx.caller, |prank| prank.new_caller);
+
+        let deploy_call = deployCode_1Call {
+            artifactPath: contractName.clone(),
+            constructorArgs: constructorArgs.clone(),
+        };
+
+        let address_bytes = deploy_call.apply_full(ccx, executor)?;
+        let address = Address::from_slice(&address_bytes);
+        
+        save_deployment_address(
+            ccx,
+            chain_id,
+            contractName,
+            address,
+            deployer,
+            Some(constructorArgs),
+            None,
+        )?;
+
+        Ok(address_bytes)
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct DeploymentArtifact {
     address: Address,
@@ -74,6 +113,37 @@ fn load_contract<FEN: FoundryEvmNetwork>(
 
     state.fdk.address_book.entry(chain_id).or_default().insert(contract_name.to_string(), address);
     Ok(address)
+}
+
+fn save_deployment_address<FEN: FoundryEvmNetwork>(
+    ccx: &mut CheatsCtxt<'_, '_, FEN>,
+    chain_id: u64,
+    contract_name: &str,
+    address: Address,
+    deployer: Address,
+    constructor_args: Option<&Bytes>,
+    value: Option<U256>,
+) -> Result<()> {
+    // save to address book
+    ccx.state.fdk.address_book.entry(chain_id).or_default().insert(contract_name.to_string(), address);
+
+    // Get chain alias for deployment path
+    let chain_alias = chain_id_to_alias(ccx.state, chain_id)?;
+
+    // Generate full artifact with metadata
+    let artifact = generate_artifact(
+        ccx,
+        contract_name,
+        address,
+        deployer,
+        constructor_args,
+        value,
+    )?;
+
+    // Save artifact to deployments/{chain_alias}/{contract_name}.json
+    save_artifact(ccx.state, &chain_alias, &artifact)?;
+
+    Ok(())
 }
 
 fn chain_alias_to_id<FEN: FoundryEvmNetwork>(

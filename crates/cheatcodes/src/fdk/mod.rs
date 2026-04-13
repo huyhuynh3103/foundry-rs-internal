@@ -1,6 +1,7 @@
 use alloy_primitives::Address;
 use std::collections::HashMap;
 
+pub mod artifact;
 pub mod cheatcode;
 
 #[derive(Default, Clone, Debug)]
