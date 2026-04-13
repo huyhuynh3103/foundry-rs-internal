@@ -128,6 +128,9 @@ pub use compilation::{CompilationRestrictions, SettingsOverrides};
 pub mod extend;
 use extend::Extends;
 
+pub mod fdk;
+pub use fdk::FdkConfig;
+
 use foundry_evm_networks::NetworkConfigs;
 pub use semver;
 
@@ -492,6 +495,8 @@ pub struct Config {
     pub doc: DocConfig,
     /// Configuration for `forge bind-json`
     pub bind_json: BindJsonConfig,
+    /// Configuration for FDK (Foundry Deployment Kit)
+    pub fdk: FdkConfig,
     /// Configures the permissions of cheat codes that touch the file system.
     ///
     /// This includes what operations can be executed (read, write)
@@ -2631,6 +2636,7 @@ impl Default for Config {
             lint: Default::default(),
             doc: Default::default(),
             bind_json: Default::default(),
+            fdk: Default::default(),
             labels: Default::default(),
             unchecked_cheatcode_artifacts: false,
             create2_library_salt: Self::DEFAULT_CREATE2_LIBRARY_SALT,
