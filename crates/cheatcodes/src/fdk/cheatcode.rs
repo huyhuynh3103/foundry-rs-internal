@@ -372,16 +372,20 @@ fn contract_name_to_artifact_path<FEN: FoundryEvmNetwork>(
 ) -> String {
     // If input already contains `:` and has a path separator, it's likely already correct
     if input.contains(':') && (input.contains('/') || input.contains('\\')) {
+        tracing::debug!(input, "artifact path already complete, using as-is");
         return input.to_string();
     }
     
     // Try to find the artifact from available artifacts using the input
     if let Ok(artifact_path) = resolve_artifact_path_from_metadata(state, input) {
+        tracing::info!(input, artifact_path, "resolved artifact path from metadata");
         return artifact_path;
     }
     
     // Fallback to heuristic-based resolution if artifact lookup fails
-    fallback_artifact_path_resolution(state, input)
+    let artifact_path = fallback_artifact_path_resolution(state, input);
+    tracing::warn!(input, artifact_path, "using fallback heuristic resolution (metadata not available)");
+    artifact_path
 }
 
 /// Resolves artifact path by reading the artifact JSON file from the `out` directory
@@ -406,6 +410,8 @@ fn resolve_artifact_path_from_metadata<FEN: FoundryEvmNetwork>(
             .unwrap_or(input)
     };
 
+    tracing::debug!(input, contract_name, "extracting contract name from input");
+
     // Get the `out` directory from foundry config
     let out_dir = &state.config.paths.artifacts;
     
@@ -414,8 +420,17 @@ fn resolve_artifact_path_from_metadata<FEN: FoundryEvmNetwork>(
         .join(format!("{}.sol", contract_name))
         .join(format!("{}.json", contract_name));
     
+    tracing::debug!(
+        path = %artifact_json_path.display(),
+        "looking for artifact JSON file"
+    );
+    
     // Check if file exists
     if !artifact_json_path.exists() {
+        tracing::debug!(
+            path = %artifact_json_path.display(),
+            "artifact file not found, will use fallback"
+        );
         return Err(fmt_err!("artifact file not found: {}", artifact_json_path.display()));
     }
     
@@ -435,6 +450,8 @@ fn resolve_artifact_path_from_metadata<FEN: FoundryEvmNetwork>(
         .and_then(|ct| ct.as_object())
         .ok_or_else(|| fmt_err!("compilationTarget not found in artifact metadata"))?;
     
+    tracing::debug!(?compilation_target, "found compilationTarget in metadata");
+    
     // The compilationTarget is an object with one entry: { "path/to/file.sol": "ContractName" }
     // Extract the first (and should be only) entry
     let (source_path, target_contract_name) = compilation_target
@@ -447,7 +464,14 @@ fn resolve_artifact_path_from_metadata<FEN: FoundryEvmNetwork>(
         .ok_or_else(|| fmt_err!("contract name in compilationTarget is not a string"))?;
     
     // Return the proper artifact path: "contracts/atia-shrine/AtiaShrine.sol:AtiaShrine"
-    Ok(format!("{}:{}", source_path, target_name))
+    let result = format!("{}:{}", source_path, target_name);
+    tracing::debug!(
+        source_path,
+        target_name,
+        result,
+        "extracted compilation target from artifact metadata"
+    );
+    Ok(result)
 }
 
 /// Fallback heuristic-based resolution when artifact metadata is not available
