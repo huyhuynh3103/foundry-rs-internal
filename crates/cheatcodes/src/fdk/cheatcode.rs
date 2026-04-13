@@ -528,8 +528,7 @@ fn load_contract<FEN: FoundryEvmNetwork>(
         .fdk
         .address_book
         .get(&chain_id)
-        .and_then(|entries| entries.get(contract_name))
-        .copied()
+        .and_then(|book| book.get(contract_name))
     {
         return Ok(address);
     }
@@ -542,7 +541,7 @@ fn load_contract<FEN: FoundryEvmNetwork>(
             fmt_err!("no deployment found for {contract_name} on chain {chain_alias}")
         })?;
 
-    state.fdk.address_book.entry(chain_id).or_default().insert(contract_name.to_string(), address);
+    state.fdk.address_book.entry(chain_id).or_default().insert(contract_name, address);
     Ok(address)
 }
 
@@ -556,7 +555,7 @@ fn save_deployment_address<FEN: FoundryEvmNetwork>(
     value: Option<U256>,
 ) -> Result<()> {
     // save to address book
-    ccx.state.fdk.address_book.entry(chain_id).or_default().insert(contract_name.to_string(), address);
+    ccx.state.fdk.address_book.entry(chain_id).or_default().insert(contract_name, address);
 
     // Get chain alias for deployment path
     let chain_alias = chain_id_to_alias(ccx.state, chain_id)?;
@@ -996,7 +995,7 @@ fn store_config<FEN: FoundryEvmNetwork>(
         .contract_configs
         .entry(chain_id)
         .or_default()
-        .insert(contract_name.to_string(), config);
+        .insert(contract_name, config);
     Ok(Default::default())
 }
 
@@ -1010,7 +1009,7 @@ fn load_config<FEN: FoundryEvmNetwork>(
         .fdk
         .contract_configs
         .get(&chain_id)
-        .and_then(|entries| entries.get(contract_name))
+        .and_then(|store| store.get(contract_name))
         .cloned();
     
     match config {

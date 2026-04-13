@@ -8,7 +8,7 @@ use crate::{
         mock::{MockCallDataContext, MockCallReturnData},
         prank::Prank,
     },
-    fdk::FdkState,
+    fdk::{ContractAddressBook, FdkState},
     inspector::utils::CommonCreateInput,
     script::{Broadcast, Wallets},
     test::{
@@ -629,7 +629,8 @@ impl<FEN: FoundryEvmNetwork> Cheatcodes<FEN> {
                     num_contracts = contracts.len(),
                     "pre-loading default contracts for chain"
                 );
-                address_book.insert(chain_id, contracts.clone());
+                // Convert HashMap<String, Address> to ContractAddressBook
+                address_book.insert(chain_id, ContractAddressBook::from_string_map(contracts.clone()));
             } else {
                 tracing::warn!(
                     chain_alias,
