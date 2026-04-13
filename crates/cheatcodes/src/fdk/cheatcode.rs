@@ -69,6 +69,8 @@ impl Cheatcode for deployImmutable_0Call {
         };
 
         let address_bytes = deploy_call.apply_full(ccx, executor)?;
+
+        tracing::info!(address_bytes, "address bytes");
         let address = Address::from_slice(&address_bytes);
         
         // Extract contract name from artifact for deployment tracking
