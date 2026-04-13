@@ -30,6 +30,9 @@ interface Fdk {
     /// Deploys an immutable contract.
     #[cheatcode(group = Scripting, safety = Safe)]
     function deployImmutable(string calldata contractName, bytes calldata constructorArgs) external pure returns (address);
+    /// Deploys an immutable contract (no constructor args).
+    #[cheatcode(group = Scripting, safety = Safe)]
+    function deployImmutable(string calldata contractName) external pure returns (address);
 
     /// Deploys a logic contract (implementation).
     #[cheatcode(group = Scripting, safety = Safe)]

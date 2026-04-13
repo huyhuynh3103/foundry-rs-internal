@@ -46,7 +46,7 @@ impl Cheatcode for loadContract_2Call {
     }
 }
 
-impl Cheatcode for deployImmutableCall {
+impl Cheatcode for deployImmutable_0Call {
     fn apply_full<FEN: FoundryEvmNetwork>(
         &self,
         ccx: &mut CheatsCtxt<'_, '_, FEN>,
@@ -75,6 +75,42 @@ impl Cheatcode for deployImmutableCall {
             address,
             deployer,
             Some(constructorArgs),
+            None,
+        )?;
+
+        Ok(address_bytes)
+    }
+}
+
+impl Cheatcode for deployImmutable_1Call {
+    fn apply_full<FEN: FoundryEvmNetwork>(
+        &self,
+        ccx: &mut CheatsCtxt<'_, '_, FEN>,
+        executor: &mut dyn CheatcodesExecutor<FEN>,
+    ) -> Result {
+        let chain_id = ccx.ecx.cfg().chain_id;
+        let Self { contractName } = self;
+        
+        // Get deployer address before deployment
+        let deployer = ccx.state
+            .get_prank(ccx.ecx.journal().depth())
+            .map_or(ccx.caller, |prank| prank.new_caller);
+
+        let deploy_call = deployCode_1Call {
+            artifactPath: contractName.clone(),
+            constructorArgs: Bytes::new(),
+        };
+
+        let address_bytes = deploy_call.apply_full(ccx, executor)?;
+        let address = Address::from_slice(&address_bytes);
+        
+        save_deployment_address(
+            ccx,
+            chain_id,
+            contractName,
+            address,
+            deployer,
+            Some(&Bytes::new()),
             None,
         )?;
 
