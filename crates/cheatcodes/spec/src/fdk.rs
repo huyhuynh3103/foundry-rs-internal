@@ -31,15 +31,36 @@ interface Fdk {
     #[cheatcode(group = Scripting, safety = Safe)]
     function deployImmutable(string calldata contractName, bytes calldata constructorArgs) external pure returns (address);
 
-    // function deployLogic(string calldata contractName, bytes calldata constructorArgs) external pure returns (address);
+    /// Deploys a logic contract (implementation).
+    #[cheatcode(group = Scripting, safety = Safe)]
+    function deployLogic(string calldata contractName, bytes calldata constructorArgs) external pure returns (address);
 
-    // function deployProxy(string calldata contractName, bytes calldata constructorArgs, bytes calldata initializationData, address proxyAdmin) external pure returns (address);
-    // function deployProxy(string calldata contractName, bytes calldata initializationData, address proxyAdmin) external pure returns (address);
-    // function deployProxy(string calldata contractName, bytes calldata initializationData) external pure returns (address);
-    // function deployProxy(string calldata contractName) external pure returns (address);
+    /// Deploys a TransparentUpgradeableProxy with a new logic contract.
+    #[cheatcode(group = Scripting, safety = Safe)]
+    function deployProxy(string calldata contractName, bytes calldata constructorArgs, bytes calldata initializationData, address proxyAdmin) external pure returns (address);
 
-    // function upgradeProxy(string calldata contractName, bytes calldata constructorArgs, bytes calldata initializationData) external pure returns (address);
-    // function upgradeProxy(string calldata contractName, bytes calldata initializationData) external pure returns (address);
-    // function upgradeProxy(string calldata contractName) external pure returns (address);
+    /// Deploys a TransparentUpgradeableProxy with a new logic contract (no constructor args).
+    #[cheatcode(group = Scripting, safety = Safe)]
+    function deployProxy(string calldata contractName, bytes calldata initializationData, address proxyAdmin) external pure returns (address);
+
+    /// Deploys a TransparentUpgradeableProxy with a new logic contract (loads ProxyAdmin from deployments).
+    #[cheatcode(group = Scripting, safety = Safe)]
+    function deployProxy(string calldata contractName, bytes calldata initializationData) external pure returns (address);
+
+    /// Deploys a TransparentUpgradeableProxy with a new logic contract (no init data, loads ProxyAdmin).
+    #[cheatcode(group = Scripting, safety = Safe)]
+    function deployProxy(string calldata contractName) external pure returns (address);
+
+    /// Upgrades an existing proxy to a new logic contract.
+    #[cheatcode(group = Scripting, safety = Safe)]
+    function upgradeProxy(string calldata contractName, bytes calldata constructorArgs, bytes calldata initializationData) external pure returns (address);
+
+    /// Upgrades an existing proxy to a new logic contract (no constructor args).
+    #[cheatcode(group = Scripting, safety = Safe)]
+    function upgradeProxy(string calldata contractName, bytes calldata initializationData) external pure returns (address);
+
+    /// Upgrades an existing proxy to a new logic contract (no init data).
+    #[cheatcode(group = Scripting, safety = Safe)]
+    function upgradeProxy(string calldata contractName) external pure returns (address);
 }
 }

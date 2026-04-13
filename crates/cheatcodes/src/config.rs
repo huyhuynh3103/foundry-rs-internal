@@ -4,7 +4,7 @@ use alloy_primitives::{U256, map::AddressHashMap};
 use foundry_common::{ContractsByArtifact, fs::normalize_path};
 use foundry_compilers::{ArtifactId, ProjectPathsConfig, utils::canonicalize};
 use foundry_config::{
-    Config, FsPermissions, ResolvedRpcEndpoint, ResolvedRpcEndpoints, RpcEndpoint, RpcEndpointUrl,
+    Config, FdkConfig, FsPermissions, ResolvedRpcEndpoint, ResolvedRpcEndpoints, RpcEndpoint, RpcEndpointUrl,
     cache::StorageCachingConfig, fs_permissions::FsAccessKind,
 };
 use foundry_evm_core::opts::EvmOpts;
@@ -56,6 +56,8 @@ pub struct CheatsConfig {
     pub seed: Option<U256>,
     /// Whether to allow `expectRevert` to work for internal calls.
     pub internal_expect_revert: bool,
+    /// FDK configuration (proxy paths, etc.)
+    pub fdk: FdkConfig,
 }
 
 impl CheatsConfig {
@@ -92,6 +94,7 @@ impl CheatsConfig {
             assertions_revert: config.assertions_revert,
             seed: config.fuzz.seed,
             internal_expect_revert: config.allow_internal_expect_revert,
+            fdk: config.fdk.clone(),
         }
     }
 
@@ -222,6 +225,7 @@ impl Default for CheatsConfig {
             assertions_revert: true,
             seed: None,
             internal_expect_revert: false,
+            fdk: Default::default(),
         }
     }
 }

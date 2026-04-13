@@ -100,7 +100,7 @@ pub fn save_artifact<FEN: FoundryEvmNetwork>(
     chain_alias: &str,
     artifact: &DeploymentArtifact,
 ) -> Result<PathBuf> {
-    let deployments_path = PathBuf::from("deployments");
+    let deployments_path = PathBuf::from(&state.config.fdk.deployments_root);
     let chain_path = deployments_path.join(chain_alias);
 
     // Ensure directory exists

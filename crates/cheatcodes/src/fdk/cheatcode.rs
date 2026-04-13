@@ -7,7 +7,7 @@ use alloy_provider::Provider;
 use alloy_sol_types::SolValue;
 use foundry_common::{block_on, fs, provider::get_http_provider};
 use foundry_config::fs_permissions::FsAccessKind;
-use foundry_evm_core::evm::FoundryEvmNetwork;
+use foundry_evm_core::{evm::FoundryEvmNetwork, FoundryContextExt, FoundryTransaction};
 use revm::context::{ContextTr, JournalTr};
 use std::path::PathBuf;
 
@@ -79,6 +79,140 @@ impl Cheatcode for deployImmutableCall {
         )?;
 
         Ok(address_bytes)
+    }
+}
+
+impl Cheatcode for deployLogicCall {
+    fn apply_full<FEN: FoundryEvmNetwork>(
+        &self,
+        ccx: &mut CheatsCtxt<'_, '_, FEN>,
+        executor: &mut dyn CheatcodesExecutor<FEN>,
+    ) -> Result {
+        let chain_id = ccx.ecx.cfg().chain_id;
+        let Self { contractName, constructorArgs } = self;
+        
+        let deployer = ccx.state
+            .get_prank(ccx.ecx.journal().depth())
+            .map_or(ccx.caller, |prank| prank.new_caller);
+
+        let deploy_call = deployCode_1Call {
+            artifactPath: contractName.clone(),
+            constructorArgs: constructorArgs.clone(),
+        };
+
+        let address_bytes = deploy_call.apply_full(ccx, executor)?;
+        let address = Address::from_slice(&address_bytes);
+        
+        // Save as {contractName}Logic
+        let logic_name = format!("{}Logic", contractName);
+        save_deployment_address(
+            ccx,
+            chain_id,
+            &logic_name,
+            address,
+            deployer,
+            Some(constructorArgs),
+            None,
+        )?;
+
+        Ok(address_bytes)
+    }
+}
+
+impl Cheatcode for deployProxy_0Call {
+    fn apply_full<FEN: FoundryEvmNetwork>(
+        &self,
+        ccx: &mut CheatsCtxt<'_, '_, FEN>,
+        executor: &mut dyn CheatcodesExecutor<FEN>,
+    ) -> Result {
+        let Self { contractName, constructorArgs, initializationData, proxyAdmin } = self;
+        deploy_proxy(
+            ccx,
+            executor,
+            contractName,
+            Some(constructorArgs),
+            initializationData,
+            Some(*proxyAdmin),
+        )
+    }
+}
+
+impl Cheatcode for deployProxy_1Call {
+    fn apply_full<FEN: FoundryEvmNetwork>(
+        &self,
+        ccx: &mut CheatsCtxt<'_, '_, FEN>,
+        executor: &mut dyn CheatcodesExecutor<FEN>,
+    ) -> Result {
+        let Self { contractName, initializationData, proxyAdmin } = self;
+        deploy_proxy(
+            ccx,
+            executor,
+            contractName,
+            None,
+            initializationData,
+            Some(*proxyAdmin),
+        )
+    }
+}
+
+impl Cheatcode for deployProxy_2Call {
+    fn apply_full<FEN: FoundryEvmNetwork>(
+        &self,
+        ccx: &mut CheatsCtxt<'_, '_, FEN>,
+        executor: &mut dyn CheatcodesExecutor<FEN>,
+    ) -> Result {
+        let Self { contractName, initializationData } = self;
+        deploy_proxy(ccx, executor, contractName, None, initializationData, None)
+    }
+}
+
+impl Cheatcode for deployProxy_3Call {
+    fn apply_full<FEN: FoundryEvmNetwork>(
+        &self,
+        ccx: &mut CheatsCtxt<'_, '_, FEN>,
+        executor: &mut dyn CheatcodesExecutor<FEN>,
+    ) -> Result {
+        let Self { contractName } = self;
+        deploy_proxy(ccx, executor, contractName, None, &Bytes::new(), None)
+    }
+}
+
+impl Cheatcode for upgradeProxy_0Call {
+    fn apply_full<FEN: FoundryEvmNetwork>(
+        &self,
+        ccx: &mut CheatsCtxt<'_, '_, FEN>,
+        executor: &mut dyn CheatcodesExecutor<FEN>,
+    ) -> Result {
+        let Self { contractName, constructorArgs, initializationData } = self;
+        upgrade_proxy(
+            ccx,
+            executor,
+            contractName,
+            Some(constructorArgs),
+            initializationData,
+        )
+    }
+}
+
+impl Cheatcode for upgradeProxy_1Call {
+    fn apply_full<FEN: FoundryEvmNetwork>(
+        &self,
+        ccx: &mut CheatsCtxt<'_, '_, FEN>,
+        executor: &mut dyn CheatcodesExecutor<FEN>,
+    ) -> Result {
+        let Self { contractName, initializationData } = self;
+        upgrade_proxy(ccx, executor, contractName, None, initializationData)
+    }
+}
+
+impl Cheatcode for upgradeProxy_2Call {
+    fn apply_full<FEN: FoundryEvmNetwork>(
+        &self,
+        ccx: &mut CheatsCtxt<'_, '_, FEN>,
+        executor: &mut dyn CheatcodesExecutor<FEN>,
+    ) -> Result {
+        let Self { contractName } = self;
+        upgrade_proxy(ccx, executor, contractName, None, &Bytes::new())
     }
 }
 
@@ -250,7 +384,7 @@ fn resolve_deployment_address<FEN: FoundryEvmNetwork>(
     chain_alias: &str,
     contract_name: &str,
 ) -> Result<Option<Address>> {
-    let deployments_path = deployments_root();
+    let deployments_path = deployments_root(state);
     let deployment_file = deployments_path.join(chain_alias).join(format!("{contract_name}.json"));
     let deployment_file = state.config.ensure_path_allowed(deployment_file, FsAccessKind::Read)?;
     if !deployment_file.exists() {
@@ -273,6 +407,241 @@ fn resolve_deployment_address<FEN: FoundryEvmNetwork>(
     Ok(Some(artifact.address))
 }
 
-fn deployments_root() -> PathBuf {
-    PathBuf::from("deployments")
+fn deployments_root<FEN: FoundryEvmNetwork>(state: &Cheatcodes<FEN>) -> PathBuf {
+    PathBuf::from(&state.config.fdk.deployments_root)
+}
+
+/// Deploy a TransparentUpgradeableProxy with a new logic contract.
+fn deploy_proxy<FEN: FoundryEvmNetwork>(
+    ccx: &mut CheatsCtxt<'_, '_, FEN>,
+    executor: &mut dyn CheatcodesExecutor<FEN>,
+    contract_name: &str,
+    constructor_args: Option<&Bytes>,
+    initialization_data: &Bytes,
+    proxy_admin: Option<Address>,
+) -> Result {
+    let chain_id = ccx.ecx.cfg().chain_id;
+    let deployer = ccx.state
+        .get_prank(ccx.ecx.journal().depth())
+        .map_or(ccx.caller, |prank| prank.new_caller);
+
+    // 1. Deploy the logic contract
+    let logic_deploy = if let Some(args) = constructor_args {
+        deployCode_1Call {
+            artifactPath: contract_name.to_string(),
+            constructorArgs: args.clone(),
+        }
+    } else {
+        deployCode_1Call {
+            artifactPath: contract_name.to_string(),
+            constructorArgs: Bytes::new(),
+        }
+    };
+
+    let logic_address_bytes = logic_deploy.apply_full(ccx, executor)?;
+    let logic_address = Address::from_slice(&logic_address_bytes);
+
+    // Save logic contract as {contractName}Logic
+    let logic_name = format!("{}Logic", contract_name);
+    save_deployment_address(
+        ccx,
+        chain_id,
+        &logic_name,
+        logic_address,
+        deployer,
+        constructor_args,
+        None,
+    )?;
+
+    // 2. Get or deploy ProxyAdmin
+    let proxy_admin_address = if let Some(admin) = proxy_admin {
+        admin
+    } else {
+        get_or_deploy_proxy_admin(ccx, executor)?
+    };
+
+    // 3. Deploy TransparentUpgradeableProxy
+    // TransparentUpgradeableProxy constructor: (address _logic, address initialOwner, bytes memory _data)
+    let proxy_constructor_args = (logic_address, proxy_admin_address, initialization_data.clone()).abi_encode();
+    let proxy_constructor_bytes: Bytes = proxy_constructor_args.clone().into();
+
+    let proxy_deploy = deployCode_1Call {
+        artifactPath: ccx.state.config.fdk.transparent_proxy_path.clone(),
+        constructorArgs: proxy_constructor_bytes.clone(),
+    };
+
+    let proxy_address_bytes = proxy_deploy.apply_full(ccx, executor)?;
+    let proxy_address = Address::from_slice(&proxy_address_bytes);
+
+    // Save proxy as {contractName}Proxy
+    let proxy_name = format!("{}Proxy", contract_name);
+    save_deployment_address(
+        ccx,
+        chain_id,
+        &proxy_name,
+        proxy_address,
+        deployer,
+        Some(&proxy_constructor_bytes),
+        None,
+    )?;
+
+    // Also save under the main contract name for easy loading
+    save_deployment_address(
+        ccx,
+        chain_id,
+        contract_name,
+        proxy_address,
+        deployer,
+        None,
+        None,
+    )?;
+
+    Ok(proxy_address_bytes)
+}
+
+/// Upgrade an existing proxy to a new logic contract.
+///
+/// This function deploys a new logic contract and then calls ProxyAdmin.upgradeAndCall
+/// to point the existing proxy to the new logic implementation.
+fn upgrade_proxy<FEN: FoundryEvmNetwork>(
+    ccx: &mut CheatsCtxt<'_, '_, FEN>,
+    executor: &mut dyn CheatcodesExecutor<FEN>,
+    contract_name: &str,
+    constructor_args: Option<&Bytes>,
+    _initialization_data: &Bytes,
+) -> Result {
+    let chain_id = ccx.ecx.cfg().chain_id;
+    let chain = get_chain_by_id(ccx.state, chain_id)?;
+    let deployer = ccx.state
+        .get_prank(ccx.ecx.journal().depth())
+        .map_or(ccx.caller, |prank| prank.new_caller);
+
+    // 1. Load the existing proxy address
+    let proxy_name = format!("{}Proxy", contract_name);
+    let _proxy_address = load_contract(ccx.state, chain.clone(), &proxy_name)?;
+
+    // 2. Deploy the new logic contract
+    let logic_deploy = if let Some(args) = constructor_args {
+        deployCode_1Call {
+            artifactPath: contract_name.to_string(),
+            constructorArgs: args.clone(),
+        }
+    } else {
+        deployCode_1Call {
+            artifactPath: contract_name.to_string(),
+            constructorArgs: Bytes::new(),
+        }
+    };
+
+    let new_logic_address_bytes = logic_deploy.apply_full(ccx, executor)?;
+    let new_logic_address = Address::from_slice(&new_logic_address_bytes);
+
+    // Save new logic contract
+    let logic_name = format!("{}Logic", contract_name);
+    save_deployment_address(
+        ccx,
+        chain_id,
+        &logic_name,
+        new_logic_address,
+        deployer,
+        constructor_args,
+        None,
+    )?;
+
+    // 3. Get ProxyAdmin address
+    let proxy_admin_address = load_contract(ccx.state, chain, "ProxyAdmin")?;
+
+    // 4. Execute ProxyAdmin.upgradeAndCall to upgrade the proxy
+    execute_proxy_upgrade(
+        ccx,
+        executor,
+        proxy_admin_address,
+        _proxy_address,
+        new_logic_address,
+        _initialization_data,
+    )?;
+
+    Ok(new_logic_address_bytes)
+}
+
+/// Execute the proxy upgrade by calling ProxyAdmin.upgradeAndCall
+fn execute_proxy_upgrade<FEN: FoundryEvmNetwork>(
+    ccx: &mut CheatsCtxt<'_, '_, FEN>,
+    executor: &mut dyn CheatcodesExecutor<FEN>,
+    proxy_admin: Address,
+    proxy: Address,
+    new_logic: Address,
+    init_data: &Bytes,
+) -> Result<()> {
+    use alloy_primitives::keccak256;
+    
+    // Build the call to ProxyAdmin.upgradeAndCall(proxy, implementation, data)
+    let selector = keccak256(b"upgradeAndCall(address,address,bytes)")[..4].to_vec();
+    let params = (proxy, new_logic, init_data.clone()).abi_encode();
+    let mut call_data_vec = selector;
+    call_data_vec.extend_from_slice(&params);
+    let call_data: Bytes = call_data_vec.into();
+
+    let caller = ccx.state
+        .get_prank(ccx.ecx.journal().depth())
+        .map_or(ccx.caller, |prank| prank.new_caller);
+
+    // Build transaction environment for the upgrade call
+    use revm::primitives::TxKind;
+    
+    let mut tx_env = ccx.ecx.tx_clone();
+    tx_env.set_caller(caller);
+    tx_env.set_kind(TxKind::Call(proxy_admin));
+    tx_env.set_data(call_data);
+    tx_env.set_value(U256::ZERO);
+    tx_env.set_gas_limit(ccx.gas_limit);
+    
+    // Execute the transaction using the executor
+    executor.transact_from_tx_on_db(ccx.state, ccx.ecx, tx_env)
+        .map_err(|e| fmt_err!("proxy upgrade failed: {e}"))?;
+
+    Ok(())
+}
+
+/// Get or deploy the ProxyAdmin contract.
+fn get_or_deploy_proxy_admin<FEN: FoundryEvmNetwork>(
+    ccx: &mut CheatsCtxt<'_, '_, FEN>,
+    executor: &mut dyn CheatcodesExecutor<FEN>,
+) -> Result<Address> {
+    let chain_id = ccx.ecx.cfg().chain_id;
+    let chain = get_chain_by_id(ccx.state, chain_id)?;
+
+    // Try to load existing ProxyAdmin
+    if let Ok(address) = load_contract(ccx.state, chain, "ProxyAdmin") {
+        return Ok(address);
+    }
+
+    // Deploy new ProxyAdmin
+    let deployer = ccx.state
+        .get_prank(ccx.ecx.journal().depth())
+        .map_or(ccx.caller, |prank| prank.new_caller);
+
+    // ProxyAdmin constructor takes: address initialOwner
+    let constructor_args = deployer.abi_encode();
+
+    let deploy_call = deployCode_1Call {
+        artifactPath: ccx.state.config.fdk.proxy_admin_path.clone(),
+        constructorArgs: constructor_args.clone().into(),
+    };
+
+    let address_bytes = deploy_call.apply_full(ccx, executor)?;
+    let address = Address::from_slice(&address_bytes);
+
+    // Save ProxyAdmin
+    save_deployment_address(
+        ccx,
+        chain_id,
+        "ProxyAdmin",
+        address,
+        deployer,
+        Some(&constructor_args.into()),
+        None,
+    )?;
+
+    Ok(address)
 }
