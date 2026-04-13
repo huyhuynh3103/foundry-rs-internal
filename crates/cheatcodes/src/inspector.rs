@@ -617,6 +617,27 @@ impl CheatcodeNamespace {
 impl<FEN: FoundryEvmNetwork> Cheatcodes<FEN> {
     /// Creates a new `Cheatcodes` with the given settings.
     pub fn new(config: Arc<CheatsConfig>) -> Self {
+        // Pre-load default contracts from config into address book
+        let mut address_book = std::collections::HashMap::new();
+        for (chain_alias, contracts) in &config.fdk.default_contracts {
+            // Try to resolve chain alias to chain ID
+            // If it fails, we'll skip this chain (it will be lazy-loaded when needed)
+            if let Some(chain_id) = Self::try_resolve_chain_id(&config, chain_alias) {
+                tracing::info!(
+                    chain_alias,
+                    chain_id,
+                    num_contracts = contracts.len(),
+                    "pre-loading default contracts for chain"
+                );
+                address_book.insert(chain_id, contracts.clone());
+            } else {
+                tracing::warn!(
+                    chain_alias,
+                    "could not resolve chain ID for default contracts, will be loaded on-demand"
+                );
+            }
+        }
+
         Self {
             analysis: None,
             fs_commit: true,
@@ -657,7 +678,10 @@ impl<FEN: FoundryEvmNetwork> Cheatcodes<FEN> {
             ignored_traces: Default::default(),
             arbitrary_storage: Default::default(),
             deprecated: Default::default(),
-            fdk: Default::default(),
+            fdk: FdkState {
+                address_book,
+                ..Default::default()
+            },
             wallets: Default::default(),
             signatures_identifier: Default::default(),
             dynamic_gas_limit: Default::default(),
@@ -668,6 +692,20 @@ impl<FEN: FoundryEvmNetwork> Cheatcodes<FEN> {
     /// Enables cheatcode analysis capabilities by providing a solar compiler instance.
     pub fn set_analysis(&mut self, analysis: CheatcodeAnalysis) {
         self.analysis = Some(analysis);
+    }
+
+    /// Try to resolve a chain alias to chain ID during initialization.
+    /// Returns None if the chain cannot be resolved (e.g., RPC not available).
+    fn try_resolve_chain_id(config: &CheatsConfig, chain_alias: &str) -> Option<u64> {
+        use alloy_provider::Provider;
+        use foundry_common::{block_on, provider::get_http_provider};
+        
+        // Try to get RPC endpoint and fetch chain ID
+        config
+            .rpc_endpoint(chain_alias)
+            .ok()
+            .and_then(|endpoint| endpoint.url().ok())
+            .and_then(|rpc_url| block_on(get_http_provider(&rpc_url).get_chain_id()).ok())
     }
 
     /// Returns the configured prank at given depth or the first prank configured at a lower depth.
