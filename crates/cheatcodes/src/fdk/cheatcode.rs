@@ -355,75 +355,139 @@ fn extract_contract_name(input: &str) -> String {
 
 /// Converts a contract name or path to a proper artifact path for use with deployCode.
 ///
-/// Handles multiple input formats and resolves them to: `<path/.../xyz.sol>:<contract_name>`
+/// This function uses the artifact metadata's `compilationTarget` to get the exact source path,
+/// ensuring accuracy regardless of input format.
 ///
-/// Input formats (in priority order):
-/// 1. Full path with contract: "contracts/tokens/ERC20.sol:MyToken" → unchanged
-/// 2. Partial path with contract: "ERC20.sol:MyToken" → "src/ERC20.sol:MyToken"
-/// 3. Full path with .sol: "contracts/tokens/ERC20.sol" → "contracts/tokens/ERC20.sol:ERC20"
-/// 4. Partial path with .sol: "ERC20.sol" → "src/ERC20.sol:ERC20"
-/// 5. Path without .sol: "src/dex/v1/UniswapV2" → "src/dex/v1/UniswapV2.sol:UniswapV2"
-/// 6. Contract name only: "MyToken" → "src/MyToken.sol:MyToken"
+/// Input formats supported:
+/// - Contract name only: "MyToken"
+/// - Path with extension: "contracts/Token.sol"
+/// - Path without extension: "contracts/Token"
+/// - Full artifact path: "contracts/Token.sol:MyToken"
 ///
-/// Where `src` is the source directory from Foundry config (e.g., "src", "contracts")
+/// The function will look up the artifact and use its metadata.settings.compilationTarget
+/// to construct the proper path, e.g.: "contracts/atia-shrine/AtiaShrine.sol:AtiaShrine"
 fn contract_name_to_artifact_path<FEN: FoundryEvmNetwork>(
     state: &Cheatcodes<FEN>,
     input: &str,
 ) -> String {
-    // Get the source directory from config paths (e.g., "src", "contracts")
+    // If input already contains `:` and has a path separator, it's likely already correct
+    if input.contains(':') && (input.contains('/') || input.contains('\\')) {
+        return input.to_string();
+    }
+    
+    // Try to find the artifact from available artifacts using the input
+    if let Ok(artifact_path) = resolve_artifact_path_from_metadata(state, input) {
+        return artifact_path;
+    }
+    
+    // Fallback to heuristic-based resolution if artifact lookup fails
+    fallback_artifact_path_resolution(state, input)
+}
+
+/// Resolves artifact path by reading the artifact JSON file from the `out` directory
+/// and extracting the metadata.settings.compilationTarget
+fn resolve_artifact_path_from_metadata<FEN: FoundryEvmNetwork>(
+    state: &Cheatcodes<FEN>,
+    input: &str,
+) -> Result<String> {
+    // Extract potential contract name from input
+    let contract_name = if let Some(colon_pos) = input.find(':') {
+        &input[colon_pos + 1..]
+    } else if input.ends_with(".sol") {
+        std::path::Path::new(input)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(input)
+    } else {
+        // Remove path components and .sol extension if present
+        std::path::Path::new(input)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(input)
+    };
+
+    // Get the `out` directory from foundry config
+    let out_dir = &state.config.paths.artifacts;
+    
+    // Construct path to artifact JSON: out/<ContractName>.sol/<ContractName>.json
+    let artifact_json_path = out_dir
+        .join(format!("{}.sol", contract_name))
+        .join(format!("{}.json", contract_name));
+    
+    // Check if file exists
+    if !artifact_json_path.exists() {
+        return Err(fmt_err!("artifact file not found: {}", artifact_json_path.display()));
+    }
+    
+    // Read the JSON file
+    let json_content = fs::read_to_string(&artifact_json_path)
+        .map_err(|e| fmt_err!("failed to read artifact file: {}", e))?;
+    
+    // Parse JSON to extract metadata.settings.compilationTarget
+    let artifact: serde_json::Value = serde_json::from_str(&json_content)
+        .map_err(|e| fmt_err!("failed to parse artifact JSON: {}", e))?;
+    
+    // Navigate to metadata.settings.compilationTarget
+    let compilation_target = artifact
+        .get("metadata")
+        .and_then(|m| m.get("settings"))
+        .and_then(|s| s.get("compilationTarget"))
+        .and_then(|ct| ct.as_object())
+        .ok_or_else(|| fmt_err!("compilationTarget not found in artifact metadata"))?;
+    
+    // The compilationTarget is an object with one entry: { "path/to/file.sol": "ContractName" }
+    // Extract the first (and should be only) entry
+    let (source_path, target_contract_name) = compilation_target
+        .iter()
+        .next()
+        .ok_or_else(|| fmt_err!("compilationTarget is empty"))?;
+    
+    let target_name = target_contract_name
+        .as_str()
+        .ok_or_else(|| fmt_err!("contract name in compilationTarget is not a string"))?;
+    
+    // Return the proper artifact path: "contracts/atia-shrine/AtiaShrine.sol:AtiaShrine"
+    Ok(format!("{}:{}", source_path, target_name))
+}
+
+/// Fallback heuristic-based resolution when artifact metadata is not available
+fn fallback_artifact_path_resolution<FEN: FoundryEvmNetwork>(
+    state: &Cheatcodes<FEN>,
+    input: &str,
+) -> String {
     let src_dir = state.config.paths.sources
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("src");
     
-    // Check if input already contains `:` (path:contract format)
+    // If input contains `:`, handle path:contract format
     if let Some(colon_pos) = input.find(':') {
-        let (path_part, _contract_part) = input.split_at(colon_pos);
-        
-        // Priority 1: Full path with contract - "contracts/tokens/ERC20.sol:MyToken"
-        // If path contains directory separator, assume it's a full or relative path
+        let (path_part, _) = input.split_at(colon_pos);
         if path_part.contains('/') || path_part.contains('\\') {
             return input.to_string();
         }
-        
-        // Priority 2: Partial path with contract - "ERC20.sol:MyToken"
-        // Prepend source directory
         return format!("{}/{}", src_dir, input);
     }
     
-    // Check if input ends with .sol (it's a path without contract name)
+    // Handle .sol files
     if input.ends_with(".sol") {
-        // Extract contract name from the .sol file
         let path = std::path::Path::new(input);
-        let contract_name = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or(input);
+        let contract_name = path.file_stem().and_then(|s| s.to_str()).unwrap_or(input);
         
-        // Priority 3: Full path without contract - "contracts/tokens/ERC20.sol"
         if input.contains('/') || input.contains('\\') {
             return format!("{}:{}", input, contract_name);
         }
-        
-        // Priority 4: Partial path without contract - "ERC20.sol"
         return format!("{}/{}:{}", src_dir, input, contract_name);
     }
     
-    // Check if input contains a path separator (it's a path without .sol extension)
+    // Handle paths without .sol extension
     if input.contains('/') || input.contains('\\') {
-        // Extract contract name from the path (last component)
         let path = std::path::Path::new(input);
-        let contract_name = path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or(input);
-        
-        // Priority 5: Path without extension - "src/dex/v1/UniswapV2"
+        let contract_name = path.file_name().and_then(|s| s.to_str()).unwrap_or(input);
         return format!("{}.sol:{}", input, contract_name);
     }
     
-    // Priority 6: Contract name only - "MyToken"
-    // Construct full path: <src>/<contract_name>.sol:<contract_name>
+    // Simple contract name
     format!("{}/{}.sol:{}", src_dir, input, input)
 }
 
