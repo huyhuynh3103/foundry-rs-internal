@@ -1,0 +1,62 @@
+# Example FDK Configuration for foundry.toml
+# Copy the [fdk] section to your foundry.toml file
+
+[fdk]
+# Root directory for deployment artifacts
+# All deployment JSONs will be saved to: {deployments_root}/{chain_alias}/{contract_name}.json
+# Default: "deployments"
+deployments_root = "deployments"
+
+# Path to the TransparentUpgradeableProxy contract
+# This is used by deployProxy() to create upgradeable contract deployments
+# Default: OpenZeppelin's TransparentUpgradeableProxy
+transparent_proxy_path = "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol:TransparentUpgradeableProxy"
+
+# Path to the ProxyAdmin contract
+# This is used to manage proxy upgrades
+# Default: OpenZeppelin's ProxyAdmin
+proxy_admin_path = "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol:ProxyAdmin"
+
+# Multisig wallet addresses by chain
+# When the transaction sender matches one of these addresses:
+# - Transaction is NOT broadcast (would fail anyway since multisig requires propose/approve/execute)
+# - Transaction details are logged to: {deployments_root}/{chain}/multisig/tx_{timestamp}.json
+# - Transaction is simulated using prank to verify it will work
+[fdk.multisig_wallets]
+# Mainnet multisig (e.g., Gnosis Safe)
+mainnet = "0x1234567890123456789012345678901234567890"
+
+# Sepolia testnet multisig
+sepolia = "0x0987654321098765432109876543210987654321"
+
+# Optimism multisig
+optimism = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+
+# Arbitrum multisig
+arbitrum = "0xfedcbafedcbafedcbafedcbafedcbafedcbafed"
+
+# Custom chain alias multisig
+my_custom_chain = "0x1111111111111111111111111111111111111111"
+
+
+# ============================================================================
+# ALTERNATIVE CONFIGURATIONS
+# ============================================================================
+
+# If you're using custom proxy implementations (e.g., UUPS, custom patterns):
+# [fdk]
+# transparent_proxy_path = "src/proxies/CustomProxy.sol:CustomProxy"
+# proxy_admin_path = "src/proxies/CustomAdmin.sol:CustomAdmin"
+
+# If you want deployments in a different location:
+# [fdk]
+# deployments_root = "out/deployments"  # Store alongside build artifacts
+
+# If you want separate directories per environment:
+# [fdk]
+# deployments_root = "deployments/production"
+
+# For testing/development without multisig:
+# [fdk]
+# # Leave multisig_wallets empty or omit the section entirely
+# deployments_root = "deployments"

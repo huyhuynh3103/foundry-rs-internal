@@ -306,7 +306,7 @@ fn chain_alias_to_id<FEN: FoundryEvmNetwork>(
     }
 }
 
-fn chain_id_to_alias<FEN: FoundryEvmNetwork>(
+pub(super) fn chain_id_to_alias<FEN: FoundryEvmNetwork>(
     state: &mut Cheatcodes<FEN>,
     chain_id: u64,
 ) -> Result<String> {
@@ -574,6 +574,7 @@ fn execute_proxy_upgrade<FEN: FoundryEvmNetwork>(
     init_data: &Bytes,
 ) -> Result<()> {
     use alloy_primitives::keccak256;
+    use super::multisig::execute_or_log_multisig;
     
     // Build the call to ProxyAdmin.upgradeAndCall(proxy, implementation, data)
     let selector = keccak256(b"upgradeAndCall(address,address,bytes)")[..4].to_vec();
@@ -586,7 +587,27 @@ fn execute_proxy_upgrade<FEN: FoundryEvmNetwork>(
         .get_prank(ccx.ecx.journal().depth())
         .map_or(ccx.caller, |prank| prank.new_caller);
 
-    // Build transaction environment for the upgrade call
+    // Check if this should be handled as multisig
+    let description = Some(format!(
+        "Upgrade proxy {} to implementation {} via ProxyAdmin {}",
+        proxy, new_logic, proxy_admin
+    ));
+    
+    let is_multisig = execute_or_log_multisig(
+        ccx,
+        executor,
+        caller,
+        proxy_admin,
+        call_data.clone(),
+        U256::ZERO,
+        description,
+    )?;
+
+    if is_multisig {
+        return Ok(());
+    }
+
+    // Normal execution (non-multisig)
     use revm::primitives::TxKind;
     
     let mut tx_env = ccx.ecx.tx_clone();

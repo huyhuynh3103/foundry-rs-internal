@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 pub mod artifact;
 pub mod cheatcode;
+pub mod multisig;
 
 #[derive(Default, Clone, Debug)]
 pub struct FdkState {

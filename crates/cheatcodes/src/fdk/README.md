@@ -40,6 +40,35 @@ transparent_proxy_path = "src/proxies/CustomProxy.sol:CustomProxy"
 proxy_admin_path = "src/proxies/CustomProxyAdmin.sol:CustomProxyAdmin"
 ```
 
+### Multisig Wallet Support
+
+Configure multisig wallet addresses to enable safe transaction handling:
+
+```toml
+[fdk.multisig_wallets]
+mainnet = "0x1234567890123456789012345678901234567890"
+sepolia = "0x0987654321098765432109876543210987654321"
+optimism = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+```
+
+When the transaction sender is a configured multisig wallet:
+1. **Transaction is NOT broadcast** (requires propose/approve/execute flow)
+2. **Transaction details are logged** to `deployments/{chain}/multisig/tx_{timestamp}.json`
+3. **Transaction is simulated** using prank to verify it will work
+4. **Console output** provides clear instructions for next steps
+
+Example multisig transaction log:
+```json
+{
+  "from": "0x1234567890123456789012345678901234567890",
+  "to": "0xProxyAdmin...",
+  "data": "0x9623609d...",
+  "value": "0",
+  "chain_id": 1,
+  "description": "Upgrade proxy 0x... to implementation 0x... via ProxyAdmin 0x..."
+}
+```
+
 ## Features
 
 ### 1. Contract Loading
@@ -193,6 +222,125 @@ Each chain gets its own subdirectory, and each deployed contract gets a JSON art
 - Handles chain alias resolution and caching
 - Integrates with OpenZeppelin's TransparentUpgradeableProxy pattern
 
+## Multisig Wallet Integration
+
+### Overview
+
+When deploying or upgrading contracts from a multisig wallet, transactions cannot be broadcast directly (they require propose → approve → execute flow). FDK automatically detects multisig senders and:
+
+1. **Logs transactions** instead of broadcasting
+2. **Simulates transactions** using prank to verify correctness
+3. **Provides transaction details** for proposing to the multisig
+
+### Configuration
+
+Define your multisig wallet addresses in `foundry.toml`:
+
+```toml
+[fdk.multisig_wallets]
+mainnet = "0x1234567890123456789012345678901234567890"
+sepolia = "0x9876543210987654321098765432109876543210"
+optimism = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+```
+
+### How It Works
+
+When `upgradeProxy` (or other functions) detect the sender is a multisig:
+
+**Console Output:**
+```
+══════════════════════════════════════════════════════════
+🔐 MULTISIG TRANSACTION DETECTED
+══════════════════════════════════════════════════════════
+From (Multisig): 0x1234...
+To:              0xProxyAdmin...
+Value:           0 wei
+Calldata:        0x9623609d...
+Description:     Upgrade proxy 0x... to implementation 0x...
+Chain ID:        1
+Saved to:        deployments/mainnet/multisig/tx_1234567890.json
+══════════════════════════════════════════════════════════
+⚠️  This transaction was NOT broadcast.
+   You need to:
+   1. Propose this transaction to the multisig
+   2. Gather required approvals
+   3. Execute through the multisig wallet
+══════════════════════════════════════════════════════════
+
+🔍 Simulating transaction with prank...
+✅ Simulation successful! Transaction will work when executed from multisig.
+```
+
+**Transaction File** (`deployments/mainnet/multisig/tx_1234567890.json`):
+```json
+{
+  "from": "0x1234567890123456789012345678901234567890",
+  "to": "0xProxyAdmin...",
+  "data": "0x9623609d000000...",
+  "value": "0",
+  "chain_id": 1,
+  "description": "Upgrade proxy 0x... to implementation 0x... via ProxyAdmin 0x..."
+}
+```
+
+### Multisig Deployment Workflow
+
+1. **Configure multisig in `foundry.toml`:**
+```toml
+[fdk.multisig_wallets]
+mainnet = "0xYourSafeMultisig..."
+```
+
+2. **Run deployment script:**
+```solidity
+contract UpgradeScript is Script {
+    function run() external {
+        address multisig = vm.envAddress("MULTISIG_ADDRESS");
+        vm.startBroadcast(multisig);
+        
+        // This will be logged, not broadcast
+        upgradeProxy("MyContract", initData);
+        
+        vm.stopBroadcast();
+    }
+}
+```
+
+3. **Check simulation results** in console output
+
+4. **Propose transactions** from the logged JSON files to your multisig:
+   - Safe (Gnosis Safe): Use the Safe UI or CLI
+   - Hardware wallet multisig: Use your multisig tool
+   - Custom multisig: Parse the JSON and submit
+
+5. **Gather approvals** from other signers
+
+6. **Execute** the approved transaction
+
+### Benefits
+
+- **No accidental broadcasts** from multisig addresses
+- **Pre-flight simulation** catches errors before proposing
+- **Audit trail** with timestamped transaction logs
+- **Clear instructions** in console output
+- **Portable transaction data** in standard JSON format
+
+### Directory Structure
+
+```
+deployments/
+├── mainnet/
+│   ├── multisig/
+│   │   ├── tx_1712345678.json   # First multisig tx
+│   │   ├── tx_1712345890.json   # Second multisig tx
+│   │   └── tx_1712346000.json   # Third multisig tx
+│   ├── ProxyAdmin.json
+│   └── MyContract.json
+└── optimism/
+    └── multisig/
+        └── tx_1712340000.json
+```
+
 ## Requirements
 
 - OpenZeppelin Contracts installed: `@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol`
@@ -248,3 +396,48 @@ contract CrossChainScript is Script {
     }
 }
 ```
+
+### Multisig Wallet Deployment
+
+When deploying or upgrading from a multisig wallet:
+
+```solidity
+contract MultisigUpgradeScript is Script {
+    function run() external {
+        // Configure multisig as sender in foundry.toml:
+        // [fdk.multisig_wallets]
+        // mainnet = "0xYourMultisig..."
+        
+        vm.startBroadcast(multisigAddress);
+        
+        // This will be logged instead of broadcast
+        address newLogic = upgradeProxy(
+            "MyContract",
+            abi.encodeCall(MyContractV2.reinitialize, (newParam))
+        );
+        
+        vm.stopBroadcast();
+        
+        // Output:
+        // 🔐 MULTISIG TRANSACTION DETECTED
+        // From (Multisig): 0xYourMultisig...
+        // To:              0xProxyAdmin...
+        // Calldata:        0x9623609d...
+        // Saved to:        deployments/mainnet/multisig/tx_1234567890.json
+        // ✅ Simulation successful!
+    }
+}
+```
+
+**Workflow:**
+1. Run the script - transactions are logged, not broadcast
+2. Review the logged transaction JSON files
+3. Propose each transaction to your multisig (Safe, Gnosis, etc.)
+4. Gather required approvals from other signers
+5. Execute the approved transaction through the multisig UI/CLI
+
+**Benefits:**
+- Transactions are simulated to catch errors before proposing
+- All transaction details are saved for audit trail
+- No accidental broadcasts from multisig (which would fail)
+- Clean separation between deployment logic and multisig execution
