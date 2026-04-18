@@ -103,5 +103,17 @@ interface Fdk {
     /// Loads contract configuration for a specific chain by ID.
     #[cheatcode(group = Scripting, safety = Safe)]
     function loadConfig(string calldata contractName, uint256 chainId) external view returns (bytes memory);
+
+    /// Set contract address for a specific chain by ID.
+    #[cheatcode(group = Scripting, safety = Safe)]
+    function setContract(string calldata contractName, uint256 chainId, address contractAddr) external view;
+
+    /// Set contract address for a specific chain by ID.
+    #[cheatcode(group = Scripting, safety = Safe)]
+    function setContract(string calldata contractName, string calldata chainAlias, address contractAddr) external view;
+
+    /// Set contract address for a specific chain by ID.
+    #[cheatcode(group = Scripting, safety = Safe)]
+    function setContract(string calldata contractName, address contractAddr) external view;
 }
 }

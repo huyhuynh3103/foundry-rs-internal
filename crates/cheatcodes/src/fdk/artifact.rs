@@ -127,7 +127,7 @@ pub fn save_artifact<FEN: FoundryEvmNetwork>(
 fn extract_source_name(contract_name: &str) -> String {
     let path = std::path::Path::new(contract_name);
     let basename = path.file_name().unwrap_or(path.as_os_str()).to_string_lossy();
-    
+
     // Remove .json or .sol extension
     basename
         .strip_suffix(".json")
@@ -150,7 +150,7 @@ fn forge_inspect(source_name: &str, field: &str) -> Result<serde_json::Value> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     // Sanitize: check if output is valid JSON, default to null if not
     serde_json::from_str(&stdout)
         .map_err(|e| fmt_err!("invalid JSON from forge inspect {field}: {e}"))

@@ -630,7 +630,8 @@ impl<FEN: FoundryEvmNetwork> Cheatcodes<FEN> {
                     "pre-loading default contracts for chain"
                 );
                 // Convert HashMap<String, Address> to ContractAddressBook
-                address_book.insert(chain_id, ContractAddressBook::from_string_map(contracts.clone()));
+                address_book
+                    .insert(chain_id, ContractAddressBook::from_string_map(contracts.clone()));
             } else {
                 tracing::warn!(
                     chain_alias,
@@ -679,10 +680,7 @@ impl<FEN: FoundryEvmNetwork> Cheatcodes<FEN> {
             ignored_traces: Default::default(),
             arbitrary_storage: Default::default(),
             deprecated: Default::default(),
-            fdk: FdkState {
-                address_book,
-                ..Default::default()
-            },
+            fdk: FdkState { address_book, ..Default::default() },
             wallets: Default::default(),
             signatures_identifier: Default::default(),
             dynamic_gas_limit: Default::default(),
@@ -700,7 +698,7 @@ impl<FEN: FoundryEvmNetwork> Cheatcodes<FEN> {
     fn try_resolve_chain_id(config: &CheatsConfig, chain_alias: &str) -> Option<u64> {
         use alloy_provider::Provider;
         use foundry_common::{block_on, provider::get_http_provider};
-        
+
         // Try to get RPC endpoint and fetch chain ID
         config
             .rpc_endpoint(chain_alias)

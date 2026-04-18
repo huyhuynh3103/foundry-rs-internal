@@ -1,4 +1,4 @@
-use alloy_primitives::{Address, Bytes, B256, keccak256};
+use alloy_primitives::{Address, B256, Bytes, keccak256};
 use std::collections::HashMap;
 
 pub mod artifact;
@@ -13,7 +13,7 @@ pub fn string_to_key(s: &str) -> B256 {
 }
 
 /// Contract address book that uses bytes32 keys internally but provides string-based API.
-/// 
+///
 /// This is more efficient than using String keys directly because:
 /// - Hashing ensures O(1) lookup regardless of string length
 /// - Fixed-size keys (32 bytes) are more cache-friendly
@@ -38,7 +38,7 @@ impl ContractAddressBook {
     pub fn insert(&mut self, contract_name: &str, address: Address) {
         let key = string_to_key(contract_name);
         self.inner.insert(key, address);
-        
+
         #[cfg(debug_assertions)]
         {
             self.reverse_lookup.insert(key, contract_name.to_string());
@@ -97,7 +97,7 @@ impl ContractConfigStore {
     pub fn insert(&mut self, contract_name: &str, config: Bytes) {
         let key = string_to_key(contract_name);
         self.inner.insert(key, config);
-        
+
         #[cfg(debug_assertions)]
         {
             self.reverse_lookup.insert(key, contract_name.to_string());
@@ -128,135 +128,135 @@ pub struct FdkState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_string_to_key_deterministic() {
         // Same string should always produce same key
         let key1 = string_to_key("MyContract");
         let key2 = string_to_key("MyContract");
         assert_eq!(key1, key2);
-        
+
         // Different strings should produce different keys
         let key3 = string_to_key("OtherContract");
         assert_ne!(key1, key3);
     }
-    
+
     #[test]
     fn test_contract_address_book_basic() {
         let mut book = ContractAddressBook::new();
         let addr = Address::random();
-        
+
         // Test insert and get
         book.insert("MyToken", addr);
         assert_eq!(book.get("MyToken"), Some(addr));
-        
+
         // Test get non-existent
         assert_eq!(book.get("NonExistent"), None);
-        
+
         // Test contains
         assert!(book.contains("MyToken"));
         assert!(!book.contains("NonExistent"));
-        
+
         // Test len
         assert_eq!(book.len(), 1);
         assert!(!book.is_empty());
     }
-    
+
     #[test]
     fn test_contract_address_book_multiple_inserts() {
         let mut book = ContractAddressBook::new();
         let addr1 = Address::random();
         let addr2 = Address::random();
         let addr3 = Address::random();
-        
+
         book.insert("Token1", addr1);
         book.insert("Token2", addr2);
         book.insert("NFT", addr3);
-        
+
         assert_eq!(book.get("Token1"), Some(addr1));
         assert_eq!(book.get("Token2"), Some(addr2));
         assert_eq!(book.get("NFT"), Some(addr3));
         assert_eq!(book.len(), 3);
     }
-    
+
     #[test]
     fn test_contract_address_book_overwrite() {
         let mut book = ContractAddressBook::new();
         let addr1 = Address::random();
         let addr2 = Address::random();
-        
+
         // Insert initial value
         book.insert("MyToken", addr1);
         assert_eq!(book.get("MyToken"), Some(addr1));
-        
+
         // Overwrite with new value
         book.insert("MyToken", addr2);
         assert_eq!(book.get("MyToken"), Some(addr2));
         assert_eq!(book.len(), 1); // Still only 1 entry
     }
-    
+
     #[test]
     fn test_contract_address_book_from_string_map() {
         let mut map = HashMap::new();
         let addr1 = Address::random();
         let addr2 = Address::random();
-        
+
         map.insert("Token1".to_string(), addr1);
         map.insert("Token2".to_string(), addr2);
-        
+
         let book = ContractAddressBook::from_string_map(map);
-        
+
         assert_eq!(book.get("Token1"), Some(addr1));
         assert_eq!(book.get("Token2"), Some(addr2));
         assert_eq!(book.len(), 2);
     }
-    
+
     #[test]
     fn test_contract_config_store_basic() {
         let mut store = ContractConfigStore::new();
         let config = Bytes::from(vec![1, 2, 3, 4]);
-        
+
         // Test insert and get
         store.insert("MyContract", config.clone());
         assert_eq!(store.get("MyContract"), Some(&config));
-        
+
         // Test get non-existent
         assert_eq!(store.get("NonExistent"), None);
     }
-    
+
     #[test]
     fn test_contract_config_store_multiple() {
         let mut store = ContractConfigStore::new();
         let config1 = Bytes::from(vec![1, 2, 3]);
         let config2 = Bytes::from(vec![4, 5, 6]);
-        
+
         store.insert("Contract1", config1.clone());
         store.insert("Contract2", config2.clone());
-        
+
         assert_eq!(store.get("Contract1"), Some(&config1));
         assert_eq!(store.get("Contract2"), Some(&config2));
     }
-    
+
     #[test]
     fn test_contract_name_special_characters() {
         let mut book = ContractAddressBook::new();
         let addr = Address::random();
-        
+
         // Test with path-like names
         book.insert("src/contracts/MyToken.sol", addr);
         assert_eq!(book.get("src/contracts/MyToken.sol"), Some(addr));
-        
+
         // Test with colons (common in Foundry artifact paths)
         book.insert("contracts/Token.sol:Token", addr);
         assert_eq!(book.get("contracts/Token.sol:Token"), Some(addr));
     }
-    
+
     #[test]
     fn test_bytes32_key_efficiency() {
         // Verify that short and long strings both hash to fixed-size B256
         let short_key = string_to_key("A");
         let long_key = string_to_key("VeryLongContractNameWithManyCharacters");
-        
+
         // Both should be B256 (32 bytes)
         assert_eq!(short_key.len(), 32);
         assert_eq!(long_key.len(), 32);

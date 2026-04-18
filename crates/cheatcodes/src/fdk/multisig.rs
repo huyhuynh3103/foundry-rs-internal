@@ -4,9 +4,8 @@ use crate::{Cheatcodes, CheatcodesExecutor, CheatsCtxt, Result};
 use alloy_primitives::{Address, Bytes, U256};
 use foundry_common::fs;
 use foundry_config::fs_permissions::FsAccessKind;
-use foundry_evm_core::{evm::FoundryEvmNetwork, FoundryContextExt, FoundryTransaction};
-use revm::context::ContextTr;
-use revm::primitives::TxKind;
+use foundry_evm_core::{FoundryContextExt, FoundryTransaction, evm::FoundryEvmNetwork};
+use revm::{context::ContextTr, primitives::TxKind};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -46,9 +45,7 @@ mod hex_bytes {
     {
         let s = String::deserialize(deserializer)?;
         let s = s.strip_prefix("0x").unwrap_or(&s);
-        alloy_primitives::hex::decode(s)
-            .map(Into::into)
-            .map_err(serde::de::Error::custom)
+        alloy_primitives::hex::decode(s).map(Into::into).map_err(serde::de::Error::custom)
     }
 }
 
@@ -109,20 +106,19 @@ fn log_multisig_transaction<FEN: FoundryEvmNetwork>(
     tx: &MultisigTransaction,
 ) -> Result<()> {
     let chain_alias = super::cheatcode::chain_id_to_alias(state, tx.chain_id)?;
-    
+
     // Create multisig directory
     let deployments_root = PathBuf::from(&state.config.fdk.deployments_root);
     let multisig_dir = deployments_root.join(&chain_alias).join("multisig");
-    
-    let multisig_dir_allowed = state.config.ensure_path_allowed(&multisig_dir, FsAccessKind::Write)?;
+
+    let multisig_dir_allowed =
+        state.config.ensure_path_allowed(&multisig_dir, FsAccessKind::Write)?;
     std::fs::create_dir_all(&multisig_dir_allowed)
         .map_err(|e| fmt_err!("failed to create multisig directory: {e}"))?;
 
     // Generate filename with timestamp
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let timestamp =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
     let filename = format!("tx_{}.json", timestamp);
     let tx_file = multisig_dir.join(&filename);
     let tx_file_allowed = state.config.ensure_path_allowed(tx_file, FsAccessKind::Write)?;
@@ -130,9 +126,8 @@ fn log_multisig_transaction<FEN: FoundryEvmNetwork>(
     // Write transaction
     let json = serde_json::to_string_pretty(tx)
         .map_err(|e| fmt_err!("failed to serialize multisig tx: {e}"))?;
-    
-    fs::write(&tx_file_allowed, json)
-        .map_err(|e| fmt_err!("failed to write multisig tx: {e}"))?;
+
+    fs::write(&tx_file_allowed, json).map_err(|e| fmt_err!("failed to write multisig tx: {e}"))?;
 
     // Log to console
     println!("\n══════════════════════════════════════════════════════════");
@@ -180,7 +175,9 @@ fn simulate_multisig_transaction<FEN: FoundryEvmNetwork>(
     // Execute the transaction using the executor
     match executor.transact_from_tx_on_db(ccx.state, ccx.ecx, tx_env) {
         Ok(_) => {
-            println!("✅ Simulation successful! Transaction will work when executed from multisig.");
+            println!(
+                "✅ Simulation successful! Transaction will work when executed from multisig."
+            );
             Ok(())
         }
         Err(e) => {
@@ -202,15 +199,7 @@ pub fn execute_or_log_multisig<FEN: FoundryEvmNetwork>(
     description: Option<String>,
 ) -> Result<bool> {
     if is_multisig_sender(ccx, caller) {
-        handle_multisig_transaction(
-            ccx,
-            executor,
-            caller,
-            target,
-            call_data,
-            value,
-            description,
-        )?;
+        handle_multisig_transaction(ccx, executor, caller, target, call_data, value, description)?;
         Ok(true)
     } else {
         Ok(false)
