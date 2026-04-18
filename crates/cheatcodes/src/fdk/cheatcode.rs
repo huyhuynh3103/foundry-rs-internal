@@ -13,6 +13,13 @@ use std::path::PathBuf;
 
 use super::artifact::{generate_artifact, save_artifact};
 
+const DEFAULT_TRANSPARENT_PROXY_PATH: &str =
+    "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol:TransparentUpgradeableProxy";
+const DEFAULT_PROXY_ADMIN_PATH: &str =
+    "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol:ProxyAdmin";
+const TRANSPARENT_PROXY_CONTRACT: &str = "TransparentUpgradeableProxy";
+const PROXY_ADMIN_CONTRACT: &str = "ProxyAdmin";
+
 impl Cheatcode for fdkVersionCall {
     fn apply<FEN: FoundryEvmNetwork>(&self, _state: &mut Cheatcodes<FEN>) -> Result {
         Ok("0.1.0".abi_encode())
@@ -54,24 +61,8 @@ impl Cheatcode for deployImmutable_0Call {
     ) -> Result {
         let chain_id = ccx.ecx.cfg().chain_id;
         let Self { artifact, constructorArgs } = self;
-
-        // Get deployer address before deployment
-        let deployer = ccx
-            .state
-            .get_prank(ccx.ecx.journal().depth())
-            .map_or(ccx.caller, |prank| prank.new_caller);
-
-        // Resolve artifact path from input (could be name, path, or full path:contract)
-        let artifact_path = contract_name_to_artifact_path(ccx.state, artifact);
-
-        let deploy_call = deployCode_1Call {
-            artifactPath: artifact_path,
-            constructorArgs: constructorArgs.clone(),
-        };
-
-        let address_bytes = deploy_call.apply_full(ccx, executor)?;
-        let address = Address::abi_decode(&address_bytes)
-            .map_err(|e| fmt_err!("failed to decode address: {}", e))?;
+        let deployer = current_deployer(ccx);
+        let (address_bytes, address) = deploy_contract(ccx, executor, artifact, Some(constructorArgs))?;
 
         // Extract contract name from artifact for deployment tracking
         let contract_name = extract_contract_name(artifact);
@@ -97,22 +88,9 @@ impl Cheatcode for deployImmutable_1Call {
     ) -> Result {
         let chain_id = ccx.ecx.cfg().chain_id;
         let Self { artifact } = self;
-
-        // Get deployer address before deployment
-        let deployer = ccx
-            .state
-            .get_prank(ccx.ecx.journal().depth())
-            .map_or(ccx.caller, |prank| prank.new_caller);
-
-        // Resolve artifact path from input
-        let artifact_path = contract_name_to_artifact_path(ccx.state, artifact);
-
-        let deploy_call =
-            deployCode_1Call { artifactPath: artifact_path, constructorArgs: Bytes::new() };
-
-        let address_bytes = deploy_call.apply_full(ccx, executor)?;
-        let address = Address::abi_decode(&address_bytes)
-            .map_err(|e| fmt_err!("failed to decode address: {}", e))?;
+        let deployer = current_deployer(ccx);
+        let empty_args = Bytes::new();
+        let (address_bytes, address) = deploy_contract(ccx, executor, artifact, Some(&empty_args))?;
 
         // Extract contract name from artifact for deployment tracking
         let contract_name = extract_contract_name(artifact);
@@ -138,23 +116,8 @@ impl Cheatcode for deployLogicCall {
     ) -> Result {
         let chain_id = ccx.ecx.cfg().chain_id;
         let Self { artifact, constructorArgs } = self;
-
-        let deployer = ccx
-            .state
-            .get_prank(ccx.ecx.journal().depth())
-            .map_or(ccx.caller, |prank| prank.new_caller);
-
-        // Resolve artifact path from input
-        let artifact_path = contract_name_to_artifact_path(ccx.state, artifact);
-
-        let deploy_call = deployCode_1Call {
-            artifactPath: artifact_path,
-            constructorArgs: constructorArgs.clone(),
-        };
-
-        let address_bytes = deploy_call.apply_full(ccx, executor)?;
-        let address = Address::abi_decode(&address_bytes)
-            .map_err(|e| fmt_err!("failed to decode address: {}", e))?;
+        let deployer = current_deployer(ccx);
+        let (address_bytes, address) = deploy_contract(ccx, executor, artifact, Some(constructorArgs))?;
 
         // Extract contract name and save as {contractName}Logic
         let contract_name = extract_contract_name(artifact);
@@ -382,16 +345,17 @@ fn contract_name_to_artifact_path<FEN: FoundryEvmNetwork>(
     state: &Cheatcodes<FEN>,
     input: &str,
 ) -> String {
-    // If input already contains `:` and has a path separator, it's likely already correct
-    if input.contains(':') && (input.contains('/') || input.contains('\\')) {
-        tracing::debug!(input, "artifact path already complete, using as-is");
-        return input.to_string();
-    }
-
     // Try to find the artifact from available artifacts using the input
     if let Ok(artifact_path) = resolve_artifact_path_from_metadata(state, input) {
         tracing::info!(input, artifact_path, "resolved artifact path from metadata");
         return artifact_path;
+    }
+
+    // If input already contains `:` and has a path separator, preserve it as an explicit path.
+    // Metadata lookup can fail when the input uses remapping aliases (e.g. @openzeppelin/...).
+    if input.contains(':') && (input.contains('/') || input.contains('\\')) {
+        tracing::debug!(input, "using explicit artifact path after metadata lookup miss");
+        return input.to_string();
     }
 
     // Fallback to heuristic-based resolution if artifact lookup fails
@@ -709,6 +673,80 @@ fn deployments_root<FEN: FoundryEvmNetwork>(state: &Cheatcodes<FEN>) -> PathBuf 
     PathBuf::from(&state.config.fdk.deployments_root)
 }
 
+fn current_deployer<FEN: FoundryEvmNetwork>(ccx: &CheatsCtxt<'_, '_, FEN>) -> Address {
+    ccx.state.get_prank(ccx.ecx.journal().depth()).map_or(ccx.caller, |prank| prank.new_caller)
+}
+
+fn deploy_contract<FEN: FoundryEvmNetwork>(
+    ccx: &mut CheatsCtxt<'_, '_, FEN>,
+    executor: &mut dyn CheatcodesExecutor<FEN>,
+    artifact: &str,
+    constructor_args: Option<&Bytes>,
+) -> Result<(Vec<u8>, Address)> {
+    let artifact_path = contract_name_to_artifact_path(ccx.state, artifact);
+    let deploy_call = deployCode_1Call {
+        artifactPath: artifact_path,
+        constructorArgs: constructor_args.cloned().unwrap_or_default(),
+    };
+    let address_bytes = deploy_call.apply_full(ccx, executor)?;
+    let address = decode_deployed_address(&address_bytes, artifact)?;
+    Ok((address_bytes, address))
+}
+
+fn decode_deployed_address(address_bytes: &[u8], artifact: &str) -> Result<Address> {
+    Address::abi_decode(address_bytes)
+        .map_err(|e| fmt_err!("failed to decode deployed address for `{artifact}`: {e}"))
+}
+
+fn ensure_artifact_available<FEN: FoundryEvmNetwork>(
+    state: &Cheatcodes<FEN>,
+    artifact_path: String,
+    contract_name: &str,
+) -> Result<String> {
+    let artifact_json_path = state
+        .config
+        .paths
+        .artifacts
+        .join(format!("{contract_name}.sol"))
+        .join(format!("{contract_name}.json"));
+    if artifact_json_path.exists() {
+        return Ok(artifact_path);
+    }
+
+    Err(fmt_err!(
+        "no matching artifact found for `{artifact_path}`. \
+        The `{contract_name}` contract is not compiled in the consumer project. \
+        Import it in a Solidity source or configure `fdk.{}` to a compiled contract.",
+        if contract_name == PROXY_ADMIN_CONTRACT {
+            "proxy_admin_path"
+        } else {
+            "transparent_proxy_path"
+        }
+    ))
+}
+
+fn resolve_proxy_support_artifact<FEN: FoundryEvmNetwork>(
+    state: &Cheatcodes<FEN>,
+    configured_path: &str,
+    default_path: &str,
+    contract_name: &str,
+) -> Result<String> {
+    let configured = contract_name_to_artifact_path(state, configured_path);
+    if let Ok(path) = ensure_artifact_available(state, configured, contract_name) {
+        return Ok(path);
+    }
+
+    if configured_path == default_path {
+        let by_name = contract_name_to_artifact_path(state, contract_name);
+        if let Ok(path) = ensure_artifact_available(state, by_name, contract_name) {
+            tracing::info!(contract_name, "resolved proxy support contract by name fallback");
+            return Ok(path);
+        }
+    }
+
+    ensure_artifact_available(state, contract_name_to_artifact_path(state, configured_path), contract_name)
+}
+
 /// Deploy a TransparentUpgradeableProxy with a new logic contract.
 fn deploy_proxy<FEN: FoundryEvmNetwork>(
     ccx: &mut CheatsCtxt<'_, '_, FEN>,
@@ -719,25 +757,14 @@ fn deploy_proxy<FEN: FoundryEvmNetwork>(
     proxy_admin: Option<Address>,
 ) -> Result {
     let chain_id = ccx.ecx.cfg().chain_id;
-    let deployer =
-        ccx.state.get_prank(ccx.ecx.journal().depth()).map_or(ccx.caller, |prank| prank.new_caller);
+    let deployer = current_deployer(ccx);
 
     // Extract contract name from artifact input
     let contract_name = extract_contract_name(artifact);
 
     // 1. Deploy the logic contract
-    // Resolve artifact path from input
-    let artifact_path = contract_name_to_artifact_path(ccx.state, artifact);
-
-    let logic_deploy = if let Some(args) = constructor_args {
-        deployCode_1Call { artifactPath: artifact_path.clone(), constructorArgs: args.clone() }
-    } else {
-        deployCode_1Call { artifactPath: artifact_path, constructorArgs: Bytes::new() }
-    };
-
-    let logic_address_bytes = logic_deploy.apply_full(ccx, executor)?;
-    let logic_address = Address::abi_decode(&logic_address_bytes)
-        .map_err(|e| fmt_err!("failed to decode logic address: {}", e))?;
+    let (_logic_address_bytes, logic_address) =
+        deploy_contract(ccx, executor, artifact, constructor_args)?;
 
     // Save logic contract as {contractName}Logic
     let logic_name = format!("{}Logic", contract_name);
@@ -764,15 +791,20 @@ fn deploy_proxy<FEN: FoundryEvmNetwork>(
     let proxy_constructor_args =
         (logic_address, proxy_admin_address, initialization_data.clone()).abi_encode();
     let proxy_constructor_bytes: Bytes = proxy_constructor_args.clone().into();
+    let proxy_artifact_path = resolve_proxy_support_artifact(
+        ccx.state,
+        &ccx.state.config.fdk.transparent_proxy_path,
+        DEFAULT_TRANSPARENT_PROXY_PATH,
+        TRANSPARENT_PROXY_CONTRACT,
+    )?;
 
     let proxy_deploy = deployCode_1Call {
-        artifactPath: ccx.state.config.fdk.transparent_proxy_path.clone(),
+        artifactPath: proxy_artifact_path,
         constructorArgs: proxy_constructor_bytes.clone(),
     };
 
     let proxy_address_bytes = proxy_deploy.apply_full(ccx, executor)?;
-    let proxy_address = Address::abi_decode(&proxy_address_bytes)
-        .map_err(|e| fmt_err!("failed to decode proxy address: {}", e))?;
+    let proxy_address = decode_deployed_address(&proxy_address_bytes, TRANSPARENT_PROXY_CONTRACT)?;
 
     // Save proxy as {contractName}Proxy
     let proxy_name = format!("{}Proxy", contract_name);
@@ -805,8 +837,7 @@ fn upgrade_proxy<FEN: FoundryEvmNetwork>(
 ) -> Result {
     let chain_id = ccx.ecx.cfg().chain_id;
     let chain = get_chain_by_id(ccx.state, chain_id)?;
-    let deployer =
-        ccx.state.get_prank(ccx.ecx.journal().depth()).map_or(ccx.caller, |prank| prank.new_caller);
+    let deployer = current_deployer(ccx);
 
     // Extract contract name from artifact input
     let contract_name = extract_contract_name(artifact);
@@ -816,18 +847,8 @@ fn upgrade_proxy<FEN: FoundryEvmNetwork>(
     let _proxy_address = load_contract(ccx.state, chain.clone(), &proxy_name)?;
 
     // 2. Deploy the new logic contract
-    // Resolve artifact path from input
-    let artifact_path = contract_name_to_artifact_path(ccx.state, artifact);
-
-    let logic_deploy = if let Some(args) = constructor_args {
-        deployCode_1Call { artifactPath: artifact_path.clone(), constructorArgs: args.clone() }
-    } else {
-        deployCode_1Call { artifactPath: artifact_path, constructorArgs: Bytes::new() }
-    };
-
-    let new_logic_address_bytes = logic_deploy.apply_full(ccx, executor)?;
-    let new_logic_address = Address::abi_decode(&new_logic_address_bytes)
-        .map_err(|e| fmt_err!("failed to decode new logic address: {}", e))?;
+    let (new_logic_address_bytes, new_logic_address) =
+        deploy_contract(ccx, executor, artifact, constructor_args)?;
 
     // Save new logic contract
     let logic_name = format!("{}Logic", contract_name);
@@ -931,20 +952,24 @@ fn get_or_deploy_proxy_admin<FEN: FoundryEvmNetwork>(
     }
 
     // Deploy new ProxyAdmin
-    let deployer =
-        ccx.state.get_prank(ccx.ecx.journal().depth()).map_or(ccx.caller, |prank| prank.new_caller);
+    let deployer = current_deployer(ccx);
 
     // ProxyAdmin constructor takes: address initialOwner
     let constructor_args = deployer.abi_encode();
+    let proxy_admin_artifact_path = resolve_proxy_support_artifact(
+        ccx.state,
+        &ccx.state.config.fdk.proxy_admin_path,
+        DEFAULT_PROXY_ADMIN_PATH,
+        PROXY_ADMIN_CONTRACT,
+    )?;
 
     let deploy_call = deployCode_1Call {
-        artifactPath: ccx.state.config.fdk.proxy_admin_path.clone(),
+        artifactPath: proxy_admin_artifact_path,
         constructorArgs: constructor_args.clone().into(),
     };
 
     let address_bytes = deploy_call.apply_full(ccx, executor)?;
-    let address = Address::abi_decode(&address_bytes)
-        .map_err(|e| fmt_err!("failed to decode ProxyAdmin address: {}", e))?;
+    let address = decode_deployed_address(&address_bytes, PROXY_ADMIN_CONTRACT)?;
 
     // Save ProxyAdmin
     save_deployment_address(
