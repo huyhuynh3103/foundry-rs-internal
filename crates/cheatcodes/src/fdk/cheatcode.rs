@@ -13,8 +13,7 @@ use std::path::PathBuf;
 
 use super::artifact::{generate_artifact, save_artifact};
 
-const DEFAULT_TRANSPARENT_PROXY_PATH: &str =
-    "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol:TransparentUpgradeableProxy";
+const DEFAULT_TRANSPARENT_PROXY_PATH: &str = "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol:TransparentUpgradeableProxy";
 const DEFAULT_PROXY_ADMIN_PATH: &str =
     "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol:ProxyAdmin";
 const TRANSPARENT_PROXY_CONTRACT: &str = "TransparentUpgradeableProxy";
@@ -62,7 +61,8 @@ impl Cheatcode for deployImmutable_0Call {
         let chain_id = ccx.ecx.cfg().chain_id;
         let Self { artifact, constructorArgs } = self;
         let deployer = current_deployer(ccx);
-        let (address_bytes, address) = deploy_contract(ccx, executor, artifact, Some(constructorArgs))?;
+        let (address_bytes, address) =
+            deploy_contract(ccx, executor, artifact, Some(constructorArgs))?;
 
         // Extract contract name from artifact for deployment tracking
         let contract_name = extract_contract_name(artifact);
@@ -117,7 +117,8 @@ impl Cheatcode for deployLogicCall {
         let chain_id = ccx.ecx.cfg().chain_id;
         let Self { artifact, constructorArgs } = self;
         let deployer = current_deployer(ccx);
-        let (address_bytes, address) = deploy_contract(ccx, executor, artifact, Some(constructorArgs))?;
+        let (address_bytes, address) =
+            deploy_contract(ccx, executor, artifact, Some(constructorArgs))?;
 
         // Extract contract name and save as {contractName}Logic
         let contract_name = extract_contract_name(artifact);
@@ -698,6 +699,53 @@ fn decode_deployed_address(address_bytes: &[u8], artifact: &str) -> Result<Addre
         .map_err(|e| fmt_err!("failed to decode deployed address for `{artifact}`: {e}"))
 }
 
+fn try_deploy_transparent_proxy_v4<FEN: FoundryEvmNetwork>(
+    ccx: &mut CheatsCtxt<'_, '_, FEN>,
+    executor: &mut dyn CheatcodesExecutor<FEN>,
+    proxy_artifact_path: &str,
+    logic_address: Address,
+    initialization_data: &Bytes,
+    proxy_admin: Option<Address>,
+) -> Result<(Vec<u8>, Address, Address, Bytes)> {
+    let proxy_admin_address = if let Some(admin) = proxy_admin {
+        admin
+    } else {
+        get_or_deploy_proxy_admin(ccx, executor)?
+    };
+
+    let proxy_constructor_args =
+        (logic_address, proxy_admin_address, initialization_data.clone()).abi_encode();
+    let proxy_constructor_bytes: Bytes = proxy_constructor_args.into();
+    let proxy_deploy = deployCode_1Call {
+        artifactPath: proxy_artifact_path.to_string(),
+        constructorArgs: proxy_constructor_bytes.clone(),
+    };
+    let proxy_address_bytes = proxy_deploy.apply_full(ccx, executor)?;
+    let proxy_address = decode_deployed_address(&proxy_address_bytes, TRANSPARENT_PROXY_CONTRACT)?;
+    Ok((proxy_address_bytes, proxy_address, proxy_admin_address, proxy_constructor_bytes))
+}
+
+fn deploy_transparent_proxy_v5<FEN: FoundryEvmNetwork>(
+    ccx: &mut CheatsCtxt<'_, '_, FEN>,
+    executor: &mut dyn CheatcodesExecutor<FEN>,
+    proxy_artifact_path: &str,
+    logic_address: Address,
+    initialization_data: &Bytes,
+    initial_owner: Address,
+) -> Result<(Vec<u8>, Address, Address, Bytes)> {
+    let proxy_constructor_args = (logic_address, initial_owner, initialization_data.clone()).abi_encode();
+    let proxy_constructor_bytes: Bytes = proxy_constructor_args.into();
+    let proxy_deploy = deployCode_1Call {
+        artifactPath: proxy_artifact_path.to_string(),
+        constructorArgs: proxy_constructor_bytes.clone(),
+    };
+    let proxy_address_bytes = proxy_deploy.apply_full(ccx, executor)?;
+    let proxy_address = decode_deployed_address(&proxy_address_bytes, TRANSPARENT_PROXY_CONTRACT)?;
+    // OZ v5 TransparentUpgradeableProxy deploys ProxyAdmin in constructor as the first CREATE.
+    let proxy_admin_address = proxy_address.create(1);
+    Ok((proxy_address_bytes, proxy_address, proxy_admin_address, proxy_constructor_bytes))
+}
+
 fn ensure_artifact_available<FEN: FoundryEvmNetwork>(
     state: &Cheatcodes<FEN>,
     artifact_path: String,
@@ -744,7 +792,11 @@ fn resolve_proxy_support_artifact<FEN: FoundryEvmNetwork>(
         }
     }
 
-    ensure_artifact_available(state, contract_name_to_artifact_path(state, configured_path), contract_name)
+    ensure_artifact_available(
+        state,
+        contract_name_to_artifact_path(state, configured_path),
+        contract_name,
+    )
 }
 
 /// Deploy a TransparentUpgradeableProxy with a new logic contract.
@@ -778,19 +830,7 @@ fn deploy_proxy<FEN: FoundryEvmNetwork>(
         None,
     )?;
 
-    // 2. Get or deploy ProxyAdmin
-    let proxy_admin_address = if let Some(admin) = proxy_admin {
-        admin
-    } else {
-        get_or_deploy_proxy_admin(ccx, executor)?
-    };
-
-    // 3. Deploy TransparentUpgradeableProxy
-    // TransparentUpgradeableProxy constructor: (address _logic, address initialOwner, bytes memory
-    // _data)
-    let proxy_constructor_args =
-        (logic_address, proxy_admin_address, initialization_data.clone()).abi_encode();
-    let proxy_constructor_bytes: Bytes = proxy_constructor_args.clone().into();
+    // 2. Resolve TransparentUpgradeableProxy artifact.
     let proxy_artifact_path = resolve_proxy_support_artifact(
         ccx.state,
         &ccx.state.config.fdk.transparent_proxy_path,
@@ -798,13 +838,40 @@ fn deploy_proxy<FEN: FoundryEvmNetwork>(
         TRANSPARENT_PROXY_CONTRACT,
     )?;
 
-    let proxy_deploy = deployCode_1Call {
-        artifactPath: proxy_artifact_path,
-        constructorArgs: proxy_constructor_bytes.clone(),
-    };
-
-    let proxy_address_bytes = proxy_deploy.apply_full(ccx, executor)?;
-    let proxy_address = decode_deployed_address(&proxy_address_bytes, TRANSPARENT_PROXY_CONTRACT)?;
+    // 3. Deploy TransparentUpgradeableProxy.
+    // Default to OZ v4 constructor shape, then fallback to OZ v5.
+    let (proxy_address_bytes, proxy_address, proxy_admin_address, proxy_constructor_bytes) =
+        match try_deploy_transparent_proxy_v4(
+            ccx,
+            executor,
+            &proxy_artifact_path,
+            logic_address,
+            initialization_data,
+            proxy_admin,
+        ) {
+            Ok(result) => result,
+            Err(v4_err) => {
+                tracing::warn!(
+                    error = %v4_err,
+                    "transparent proxy v4 deployment failed; trying OZ v5 constructor fallback"
+                );
+                let initial_owner = proxy_admin.unwrap_or(deployer);
+                deploy_transparent_proxy_v5(
+                    ccx,
+                    executor,
+                    &proxy_artifact_path,
+                    logic_address,
+                    initialization_data,
+                    initial_owner,
+                )
+                .map_err(|v5_err| {
+                    fmt_err!(
+                        "failed to deploy transparent proxy using OZ v4 and OZ v5 constructor modes. \
+                        v4 error: {v4_err}; v5 error: {v5_err}"
+                    )
+                })?
+            }
+        };
 
     // Save proxy as {contractName}Proxy
     let proxy_name = format!("{}Proxy", contract_name);
@@ -815,6 +882,18 @@ fn deploy_proxy<FEN: FoundryEvmNetwork>(
         proxy_address,
         deployer,
         Some(&proxy_constructor_bytes),
+        None,
+    )?;
+
+    // Save per-contract ProxyAdmin. Required for OZ v5 where each proxy has a dedicated admin.
+    let contract_proxy_admin_name = format!("{contract_name}ProxyAdmin");
+    save_deployment_address(
+        ccx,
+        chain_id,
+        &contract_proxy_admin_name,
+        proxy_admin_address,
+        deployer,
+        None,
         None,
     )?;
 
@@ -862,8 +941,11 @@ fn upgrade_proxy<FEN: FoundryEvmNetwork>(
         None,
     )?;
 
-    // 3. Get ProxyAdmin address
-    let proxy_admin_address = load_contract(ccx.state, chain, "ProxyAdmin")?;
+    // 3. Get ProxyAdmin address.
+    // Prefer per-contract proxy admin (OZ v5), then fallback to global ProxyAdmin (OZ v4).
+    let contract_proxy_admin_name = format!("{contract_name}ProxyAdmin");
+    let proxy_admin_address = load_contract(ccx.state, chain.clone(), &contract_proxy_admin_name)
+        .or_else(|_| load_contract(ccx.state, chain, "ProxyAdmin"))?;
 
     // 4. Execute ProxyAdmin.upgradeAndCall to upgrade the proxy
     execute_proxy_upgrade(
